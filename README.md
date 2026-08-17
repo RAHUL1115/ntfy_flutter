@@ -2,7 +2,7 @@
 
 Minimal Android Flutter scaffold for a new ntfy client inspired by the official native Android app.
 
-The source-aligned app shell is implemented; subscriptions and delivery are tracked in the remaining MVP issues. See [the MVP specification](docs/android-first-mvp-spec.md).
+The source-aligned shell and local subscription persistence are implemented; message delivery and the remaining MVP behavior are tracked in GitHub issues. See [the MVP specification](docs/android-first-mvp-spec.md).
 
 ```sh
 flutter pub get

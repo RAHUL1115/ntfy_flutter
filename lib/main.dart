@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'subscriptions.dart';
+
 final _darkTheme = ThemeData(
   useMaterial3: true,
   colorScheme: const ColorScheme.dark(
@@ -42,10 +44,16 @@ final _lightTheme = ThemeData(
   ),
 );
 
-void main() => runApp(const NtfyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final store = await SubscriptionStore.open();
+  runApp(NtfyApp(store: store));
+}
 
 class NtfyApp extends StatelessWidget {
-  const NtfyApp({super.key});
+  const NtfyApp({required this.store, super.key});
+
+  final SubscriptionRepository store;
 
   @override
   Widget build(BuildContext context) {
@@ -55,13 +63,42 @@ class NtfyApp extends StatelessWidget {
       theme: _lightTheme,
       darkTheme: _darkTheme,
       themeMode: ThemeMode.system,
-      home: const SubscriptionsScreen(),
+      home: SubscriptionsScreen(store: store),
     );
   }
 }
 
-class SubscriptionsScreen extends StatelessWidget {
-  const SubscriptionsScreen({super.key});
+class SubscriptionsScreen extends StatefulWidget {
+  const SubscriptionsScreen({required this.store, super.key});
+
+  final SubscriptionRepository store;
+
+  @override
+  State<SubscriptionsScreen> createState() => _SubscriptionsScreenState();
+}
+
+class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
+  List<Subscription>? _subscriptions;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSubscriptions();
+  }
+
+  Future<void> _loadSubscriptions() async {
+    final subscriptions = await widget.store.all();
+    if (mounted) setState(() => _subscriptions = subscriptions);
+  }
+
+  Future<void> _showSubscribeDialog() async {
+    final saved = await showDialog<Subscription>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => _SubscribeDialog(store: widget.store),
+    );
+    if (saved != null) await _loadSubscriptions();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -85,42 +122,12 @@ class SubscriptionsScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(
-                Icons.sms_outlined,
-                size: 48,
-                color: Color(0xff888888),
-              ),
-              const SizedBox(height: 20),
-              Text(
-                "It looks like you don't have any subscriptions yet.",
-                style: Theme.of(context).textTheme.titleMedium,
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Click the + to create or subscribe to a topic. Afterwards you receive notifications on your device when sending messages via PUT or POST.',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 7),
-              const Text(
-                'Detailed instructions available on ntfy.sh, and in the docs.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
+      body: _buildBody(),
       floatingActionButton: Semantics(
         button: true,
         label: 'Add subscription',
         child: FloatingActionButton(
-          onPressed: () => _showSubscribeDialog(context),
+          onPressed: _showSubscribeDialog,
           tooltip: 'Add subscription',
           child: const Icon(Icons.add),
         ),
@@ -128,31 +135,166 @@ class SubscriptionsScreen extends StatelessWidget {
     );
   }
 
-  void _showSubscribeDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Subscribe to topic'),
-        content: const Column(
+  Widget _buildBody() {
+    final subscriptions = _subscriptions;
+    if (subscriptions == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (subscriptions.isNotEmpty) {
+      return ListView.separated(
+        itemCount: subscriptions.length,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (_, index) {
+          final subscription = subscriptions[index];
+          return ListTile(
+            leading: const Icon(Icons.sms_outlined, size: 36),
+            title: Text(subscription.displayName ?? subscription.url),
+            subtitle: subscription.displayName == null
+                ? null
+                : Text(subscription.url),
+          );
+        },
+      );
+    }
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 24),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Enter a topic URL to start receiving notifications.'),
-            SizedBox(height: 16),
-            TextField(
-              decoration: InputDecoration(
-                labelText: 'Topic URL',
-                hintText: 'https://ntfy.sh/mytopic',
-              ),
+            const Icon(Icons.sms_outlined, size: 48, color: Color(0xff888888)),
+            const SizedBox(height: 20),
+            Text(
+              "It looks like you don't have any subscriptions yet.",
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Click the + to create or subscribe to a topic. Afterwards you receive notifications on your device when sending messages via PUT or POST.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 7),
+            const Text(
+              'Detailed instructions available on ntfy.sh, and in the docs.',
+              textAlign: TextAlign.center,
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _SubscribeDialog extends StatefulWidget {
+  const _SubscribeDialog({required this.store});
+
+  final SubscriptionRepository store;
+
+  @override
+  State<_SubscribeDialog> createState() => _SubscribeDialogState();
+}
+
+class _SubscribeDialogState extends State<_SubscribeDialog> {
+  final _urlController = TextEditingController();
+  final _nameController = TextEditingController();
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _urlController.addListener(_urlChanged);
+  }
+
+  @override
+  void dispose() {
+    _urlController
+      ..removeListener(_urlChanged)
+      ..dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _urlChanged() => setState(() => _error = null);
+
+  Future<void> _save() async {
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      final subscription = await widget.store.add(
+        url: _urlController.text,
+        displayName: _nameController.text,
+      );
+      if (mounted) {
+        setState(() => _saving = false);
+        Navigator.pop(context, subscription);
+      }
+    } on SubscriptionException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('Could not save the subscription. Please try again.');
+    }
+  }
+
+  void _showError(String message) {
+    if (mounted) {
+      setState(() {
+        _saving = false;
+        _error = message;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_saving,
+      child: AlertDialog(
+        title: const Text('Subscribe to topic'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Enter a topic URL to start receiving notifications.'),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('topic-url-field'),
+                controller: _urlController,
+                autofocus: true,
+                keyboardType: TextInputType.url,
+                autocorrect: false,
+                decoration: InputDecoration(
+                  labelText: 'Topic URL',
+                  hintText: 'https://ntfy.sh/mytopic',
+                  errorText: _error,
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                key: const Key('display-name-field'),
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Display name (optional)',
+                ),
+              ),
+            ],
+          ),
+        ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: _saving ? null : () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
-          const TextButton(onPressed: null, child: Text('Subscribe')),
+          TextButton(
+            onPressed: _saving || _urlController.text.trim().isEmpty
+                ? null
+                : _save,
+            child: const Text('Subscribe'),
+          ),
         ],
       ),
     );
