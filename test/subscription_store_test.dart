@@ -198,6 +198,88 @@ void main() {
     expect((await store.loadFeed(second.id)).messages, hasLength(1));
   });
 
+  test('deletes and clears messages only within the selected topic', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final first = await store.add(url: 'https://ntfy.sh/first');
+    final second = await store.add(url: 'https://ntfy.sh/second');
+    final firstMessage = await store.ingest(
+      first.id,
+      IncomingMessage(
+        eventId: 'first-a',
+        time: DateTime.utc(2026),
+        message: 'First A',
+      ),
+    );
+    await store.ingest(
+      first.id,
+      IncomingMessage(
+        eventId: 'first-b',
+        time: DateTime.utc(2026, 1, 2),
+        message: 'First B',
+      ),
+    );
+    await store.ingest(
+      second.id,
+      IncomingMessage(
+        eventId: 'second-a',
+        time: DateTime.utc(2026),
+        message: 'Second A',
+      ),
+    );
+
+    await store.deleteMessage(second.id, firstMessage!.localId);
+    expect((await store.loadFeed(first.id)).messages, hasLength(2));
+
+    await store.deleteMessage(first.id, firstMessage.localId);
+    expect((await store.loadFeed(first.id)).messages.single.message, 'First B');
+
+    await expectLater(
+      store.restoreMessage(second.id, firstMessage),
+      throwsArgumentError,
+    );
+    await store.restoreMessage(first.id, firstMessage);
+    final restored = await store.loadFeed(first.id);
+    expect(restored.messages.map((message) => message.message), [
+      'First A',
+      'First B',
+    ]);
+    expect(restored.cursor, 'first-b');
+
+    await store.clearMessages(first.id);
+    final cleared = await store.loadFeed(first.id);
+    expect(cleared.messages, isEmpty);
+    expect(cleared.cursor, 'first-b');
+    expect(
+      (await store.loadFeed(second.id)).messages.single.message,
+      'Second A',
+    );
+    expect(await store.all(), [first, second]);
+  });
+
+  test('removing a subscription cascades only its local history', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final first = await store.add(url: 'https://ntfy.sh/first');
+    final second = await store.add(url: 'https://ntfy.sh/second');
+    for (final subscription in [first, second]) {
+      await store.ingest(
+        subscription.id,
+        IncomingMessage(
+          eventId: 'message-${subscription.id}',
+          time: DateTime.utc(2026),
+          message: subscription.url,
+        ),
+      );
+    }
+
+    await store.remove(first.id);
+
+    expect(await store.all(), [second]);
+    await expectLater(store.loadFeed(first.id), throwsStateError);
+    expect((await store.loadFeed(second.id)).messages, hasLength(1));
+  });
+
   test('recovers saved subscriptions after reopening the database', () async {
     final directory = await Directory.systemTemp.createTemp('ntfy_store_test');
     final path = '${directory.path}/ntfy.db';

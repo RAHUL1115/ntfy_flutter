@@ -207,6 +207,62 @@ void main() {
     },
     timeout: const Timeout(Duration(seconds: 10)),
   );
+
+  test(
+    'local cleanup and unsubscribe send no deletion requests to ntfy',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'ntfy_cleanup_acceptance',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final requests = <String>[];
+      final serverDone = server.listen((request) async {
+        requests.add(request.method);
+        request.response.headers.contentType = ContentType(
+          'application',
+          'x-ndjson',
+          charset: 'utf-8',
+        );
+        request.response.writeln(_event('cleanup', 1, 'Local only'));
+        await request.response.close();
+      }).asFuture<void>();
+      addTearDown(() async {
+        await server.close(force: true);
+        await serverDone;
+        await directory.delete(recursive: true);
+      });
+
+      final store = await SubscriptionStore.open(
+        factory: databaseFactoryFfi,
+        path: '${directory.path}/ntfy.db',
+      );
+      addTearDown(store.close);
+      final subscription = await store.add(
+        url: 'http://${server.address.host}:${server.port}/alerts',
+      );
+      final session = TopicFeedSession(
+        controller: TopicFeedController(
+          repository: store,
+          subscription: subscription,
+          client: HttpNtfyStreamClient(),
+          retryDelays: const [Duration(seconds: 30)],
+        ),
+      );
+      unawaited(session.start());
+      await _until(() => session.state.messages.length == 1);
+      final message = session.state.messages.single;
+
+      await session.execute(DeleteLocalMessage(message.localId));
+      await session.execute(RestoreLocalMessage(message));
+      await session.execute(const ClearLocalMessages());
+      await session.close();
+      await store.remove(subscription.id);
+
+      expect(requests, ['GET']);
+      expect(await store.all(), isEmpty);
+    },
+    timeout: const Timeout(Duration(seconds: 10)),
+  );
 }
 
 String _event(

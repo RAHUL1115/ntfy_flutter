@@ -35,6 +35,8 @@ abstract interface class SubscriptionRepository {
   Future<Subscription> add({required String url, String? displayName});
 
   Future<List<Subscription>> all();
+
+  Future<void> remove(int subscriptionId);
 }
 
 abstract interface class AppRepository
@@ -120,6 +122,13 @@ class SubscriptionStore implements AppRepository {
   }
 
   @override
+  Future<void> remove(int subscriptionId) => _database.delete(
+    'subscriptions',
+    where: 'id = ?',
+    whereArgs: [subscriptionId],
+  );
+
+  @override
   Future<FeedSnapshot> loadFeed(int subscriptionId) =>
       _database.transaction((transaction) async {
         final subscriptionRows = await transaction.query(
@@ -175,6 +184,42 @@ class SubscriptionStore implements AppRepository {
           tags: List.unmodifiable(message.tags),
         );
       });
+
+  @override
+  Future<void> deleteMessage(int subscriptionId, int localId) =>
+      _database.delete(
+        'messages',
+        where: 'subscription_id = ? AND local_id = ?',
+        whereArgs: [subscriptionId, localId],
+      );
+
+  @override
+  Future<void> restoreMessage(int subscriptionId, StoredMessage message) async {
+    if (message.subscriptionId != subscriptionId) {
+      throw ArgumentError.value(
+        message.subscriptionId,
+        'message.subscriptionId',
+        'Must match the selected subscription.',
+      );
+    }
+    await _database.insert('messages', {
+      'local_id': message.localId,
+      'subscription_id': subscriptionId,
+      'event_id': message.eventId,
+      'event_time': message.time.toUtc().millisecondsSinceEpoch,
+      'message': message.message,
+      'title': message.title,
+      'priority': message.priority,
+      'tags': jsonEncode(message.tags),
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  @override
+  Future<void> clearMessages(int subscriptionId) => _database.delete(
+    'messages',
+    where: 'subscription_id = ?',
+    whereArgs: [subscriptionId],
+  );
 
   Future<void> close() => _database.close();
 

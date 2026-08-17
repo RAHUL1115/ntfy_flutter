@@ -123,6 +123,67 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
     if (saved != null) await _loadSubscriptions();
   }
 
+  Future<void> _openSubscription(Subscription subscription) async {
+    final feed = widget.feedFactory(subscription);
+    final removed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => TopicFeedScreen(
+          subscription: subscription,
+          feed: feed,
+          onUnsubscribe: () => widget.store.remove(subscription.id),
+        ),
+      ),
+    );
+    if (removed == true) await _loadSubscriptions();
+  }
+
+  Future<bool> _confirmRemove(Subscription subscription) async {
+    final name = subscription.displayName ?? subscription.url;
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Unsubscribe from topic?'),
+            content: Text(
+              'Unsubscribe from $name and delete all locally stored notifications?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                child: const Text('Unsubscribe'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<void> _removeSubscription(Subscription subscription) async {
+    setState(() {
+      _subscriptions = _subscriptions
+          ?.where((item) => item.id != subscription.id)
+          .toList();
+    });
+    try {
+      await widget.store.remove(subscription.id);
+    } catch (_) {
+      await _loadSubscriptions();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not remove the subscription. Try again.'),
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -169,19 +230,24 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
         separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (_, index) {
           final subscription = subscriptions[index];
-          return ListTile(
-            leading: const Icon(Icons.sms_outlined, size: 36),
-            title: Text(subscription.displayName ?? subscription.url),
-            subtitle: subscription.displayName == null
-                ? null
-                : Text(subscription.url),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => TopicFeedScreen(
-                  subscription: subscription,
-                  feed: widget.feedFactory(subscription),
-                ),
-              ),
+          return Dismissible(
+            key: ValueKey('subscription-${subscription.id}'),
+            direction: DismissDirection.horizontal,
+            confirmDismiss: (_) => _confirmRemove(subscription),
+            onDismissed: (_) => _removeSubscription(subscription),
+            background: const _DeleteBackground(
+              alignment: Alignment.centerLeft,
+            ),
+            secondaryBackground: const _DeleteBackground(
+              alignment: Alignment.centerRight,
+            ),
+            child: ListTile(
+              leading: const Icon(Icons.sms_outlined, size: 36),
+              title: Text(subscription.displayName ?? subscription.url),
+              subtitle: subscription.displayName == null
+                  ? null
+                  : Text(subscription.url),
+              onTap: () => _openSubscription(subscription),
             ),
           );
         },
@@ -211,6 +277,26 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
               textAlign: TextAlign.center,
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DeleteBackground extends StatelessWidget {
+  const _DeleteBackground({required this.alignment});
+
+  final Alignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.error,
+      child: Align(
+        alignment: alignment,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 24),
+          child: Icon(Icons.delete_outline, color: Colors.white),
         ),
       ),
     );

@@ -169,6 +169,176 @@ void main() {
     },
   );
 
+  testWidgets('swipe deletes one notification locally and supports undo', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 3);
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: _WidgetClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(
+      find.byKey(const ValueKey('message-id-1')),
+      const Offset(-500, 0),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Body 1'), findsNothing);
+    expect(repository.messages.map((message) => message.message), [
+      'Body 0',
+      'Body 2',
+    ]);
+    expect(find.text('Notification deleted'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Undo'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Body 1'), findsOneWidget);
+    expect(repository.messages.map((message) => message.message), [
+      'Body 0',
+      'Body 2',
+      'Body 1',
+    ]);
+  });
+
+  testWidgets('clears one topic while preserving its live subscription', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 3);
+    final client = _WidgetClient();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: client,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Show menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear all notifications'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Delete all of the notifications in this topic?'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(TextButton, 'Delete permanently'));
+    await tester.pumpAndSettle();
+
+    expect(repository.messages, isEmpty);
+    expect(await repository.all(), [repository.subscription]);
+    expect(
+      find.text("You haven't received any notifications for this topic yet."),
+      findsOneWidget,
+    );
+
+    client.lines.add(
+      jsonEncode({
+        'event': 'message',
+        'topic': 'alerts',
+        'id': 'after-clear',
+        'time': 100,
+        'message': 'After clear',
+      }),
+    );
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('After clear'), findsOneWidget);
+  });
+
+  testWidgets('unsubscribing closes the active stream and removes history', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 3);
+    final client = _WidgetClient();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: client,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Show menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unsubscribe'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Unsubscribe'));
+    await tester.pumpAndSettle();
+
+    expect(client.closed, isTrue);
+    expect(repository.messages, isEmpty);
+    expect(await repository.all(), isEmpty);
+    expect(
+      find.text("It looks like you don't have any subscriptions yet."),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('failed unsubscribe leaves the active feed usable', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 1)
+      ..removeError = StateError('database busy');
+    final client = _WidgetClient();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: client,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Show menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Unsubscribe'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Unsubscribe'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Could not unsubscribe. Try again.'), findsOneWidget);
+    expect(find.text('Body 0'), findsOneWidget);
+    expect(find.text('Connected'), findsOneWidget);
+    expect(client.closed, isFalse);
+    expect(await repository.all(), [repository.subscription]);
+  });
+
   testWidgets('composer validates and preserves a failed draft for retry', (
     tester,
   ) async {
@@ -266,12 +436,19 @@ class _ThrowingClient implements NtfyStreamClient {
 
 class _WidgetClient implements NtfyStreamClient {
   final lines = StreamController<String>();
+  var closed = false;
 
   @override
   Future<FeedConnection> connect({
     required String topicUrl,
     String? cursor,
-  }) async => FeedConnection(lines: lines.stream, onClose: lines.close);
+  }) async => FeedConnection(
+    lines: lines.stream,
+    onClose: () async {
+      closed = true;
+      if (!lines.isClosed) await lines.close();
+    },
+  );
 }
 
 class _WidgetRepository implements AppRepository {
@@ -291,6 +468,8 @@ class _WidgetRepository implements AppRepository {
       );
 
   final List<StoredMessage> messages;
+  var removed = false;
+  Object? removeError;
   final subscription = const Subscription(
     id: 1,
     url: 'https://ntfy.sh/alerts',
@@ -302,13 +481,42 @@ class _WidgetRepository implements AppRepository {
       subscription;
 
   @override
-  Future<List<Subscription>> all() async => [subscription];
+  Future<List<Subscription>> all() async => removed ? [] : [subscription];
+
+  @override
+  Future<void> remove(int subscriptionId) async {
+    if (removeError != null) throw removeError!;
+    if (subscriptionId != subscription.id) return;
+    removed = true;
+    messages.clear();
+  }
 
   @override
   Future<FeedSnapshot> loadFeed(int subscriptionId) async => FeedSnapshot(
     messages: messages,
     cursor: messages.isEmpty ? null : messages.last.eventId,
   );
+
+  @override
+  Future<void> deleteMessage(int subscriptionId, int localId) async {
+    messages.removeWhere(
+      (message) =>
+          message.subscriptionId == subscriptionId &&
+          message.localId == localId,
+    );
+  }
+
+  @override
+  Future<void> restoreMessage(int subscriptionId, StoredMessage message) async {
+    if (messages.every((stored) => stored.eventId != message.eventId)) {
+      messages.add(message);
+    }
+  }
+
+  @override
+  Future<void> clearMessages(int subscriptionId) async {
+    messages.removeWhere((message) => message.subscriptionId == subscriptionId);
+  }
 
   @override
   Future<StoredMessage?> ingest(

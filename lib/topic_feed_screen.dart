@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'messages.dart';
 import 'publish.dart';
@@ -11,11 +12,13 @@ class TopicFeedScreen extends StatefulWidget {
   const TopicFeedScreen({
     required this.subscription,
     required this.feed,
+    this.onUnsubscribe,
     super.key,
   });
 
   final Subscription subscription;
   final TopicFeedSession feed;
+  final Future<void> Function()? onUnsubscribe;
 
   @override
   State<TopicFeedScreen> createState() => _TopicFeedScreenState();
@@ -113,7 +116,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
       _publishError = null;
     });
     try {
-      await widget.feed.publish(message);
+      await widget.feed.execute(PublishTopicMessage(message));
       if (!mounted) return;
       _quickMessage.clear();
       ScaffoldMessenger.of(context)
@@ -144,6 +147,109 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
     }
   }
 
+  Future<void> _deleteMessage(StoredMessage message) async {
+    _messageKeys.remove(message.eventId);
+    try {
+      await widget.feed.execute(DeleteLocalMessage(message.localId));
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: const Text('Notification deleted'),
+            action: SnackBarAction(
+              label: 'Undo',
+              onPressed: () => unawaited(_restoreMessage(message)),
+            ),
+          ),
+        );
+    } catch (_) {
+      _showCleanupError('Could not delete the notification. Try again.');
+    }
+  }
+
+  Future<void> _restoreMessage(StoredMessage message) async {
+    try {
+      await widget.feed.execute(RestoreLocalMessage(message));
+    } catch (_) {
+      _showCleanupError('Could not restore the notification. Try again.');
+    }
+  }
+
+  Future<void> _confirmClear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Clear all notifications?'),
+        content: const Text('Delete all of the notifications in this topic?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Delete permanently'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    _messageKeys.clear();
+    try {
+      await widget.feed.execute(const ClearLocalMessages());
+    } catch (_) {
+      _showCleanupError('Could not clear notifications. Try again.');
+    }
+  }
+
+  Future<void> _confirmUnsubscribe() async {
+    final callback = widget.onUnsubscribe;
+    if (callback == null) return;
+    final name = widget.subscription.displayName ?? widget.subscription.url;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Unsubscribe from topic?'),
+        content: Text(
+          'Unsubscribe from $name and delete all locally stored notifications?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(
+              foregroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Unsubscribe'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    ScaffoldMessenger.of(context).clearSnackBars();
+    try {
+      await callback();
+      await widget.feed.close();
+      if (mounted) Navigator.pop(context, true);
+    } catch (_) {
+      _showCleanupError('Could not unsubscribe. Try again.');
+    }
+  }
+
+  void _showCleanupError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   void dispose() {
     _stateSubscription?.cancel();
@@ -165,6 +271,30 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
           widget.subscription.displayName ??
               Uri.parse(widget.subscription.url).pathSegments.last,
         ),
+        actions: [
+          PopupMenuButton<_TopicAction>(
+            onSelected: (action) {
+              switch (action) {
+                case _TopicAction.clear:
+                  unawaited(_confirmClear());
+                case _TopicAction.unsubscribe:
+                  unawaited(_confirmUnsubscribe());
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: _TopicAction.clear,
+                enabled: _state.messages.isNotEmpty,
+                child: const Text('Clear all notifications'),
+              ),
+              if (widget.onUnsubscribe != null)
+                const PopupMenuItem(
+                  value: _TopicAction.unsubscribe,
+                  child: Text('Unsubscribe'),
+                ),
+            ],
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(24),
           child: Padding(
@@ -236,11 +366,45 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
       itemCount: _state.messages.length,
       itemBuilder: (_, index) {
         final message = _state.messages[index];
-        return _MessageCard(
-          key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),
-          message: message,
+        return Dismissible(
+          key: ValueKey('dismiss-message-${message.localId}'),
+          direction: DismissDirection.horizontal,
+          onDismissed: (_) => _deleteMessage(message),
+          background: const _MessageDeleteBackground(
+            alignment: Alignment.centerLeft,
+          ),
+          secondaryBackground: const _MessageDeleteBackground(
+            alignment: Alignment.centerRight,
+          ),
+          child: _MessageCard(
+            key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),
+            message: message,
+            onDelete: () => unawaited(_deleteMessage(message)),
+          ),
         );
       },
+    );
+  }
+}
+
+enum _TopicAction { clear, unsubscribe }
+
+class _MessageDeleteBackground extends StatelessWidget {
+  const _MessageDeleteBackground({required this.alignment});
+
+  final Alignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.error,
+      child: Align(
+        alignment: alignment,
+        child: const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 24),
+          child: Icon(Icons.delete_outline, color: Colors.white),
+        ),
+      ),
     );
   }
 }
@@ -253,9 +417,14 @@ class _ScrollAnchor {
 }
 
 class _MessageCard extends StatelessWidget {
-  const _MessageCard({required this.message, super.key});
+  const _MessageCard({
+    required this.message,
+    required this.onDelete,
+    super.key,
+  });
 
   final StoredMessage message;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -280,6 +449,9 @@ class _MessageCard extends StatelessWidget {
 
     return Semantics(
       label: semantics,
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'Delete notification'): onDelete,
+      },
       child: Card(
         key: ValueKey('message-${message.eventId}'),
         margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -506,7 +678,7 @@ class _PublishComposerState extends State<_PublishComposer> {
       _error = null;
     });
     try {
-      await widget.feed.publish(message);
+      await widget.feed.execute(PublishTopicMessage(message));
       if (mounted) Navigator.pop(context, true);
     } catch (error) {
       if (mounted) {

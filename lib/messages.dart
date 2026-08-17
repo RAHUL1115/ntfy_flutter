@@ -68,6 +68,12 @@ abstract interface class MessageRepository {
   Future<FeedSnapshot> loadFeed(int subscriptionId);
 
   Future<StoredMessage?> ingest(int subscriptionId, IncomingMessage message);
+
+  Future<void> deleteMessage(int subscriptionId, int localId);
+
+  Future<void> restoreMessage(int subscriptionId, StoredMessage message);
+
+  Future<void> clearMessages(int subscriptionId);
 }
 
 bool _listsEqual(List<Object?> left, List<Object?> right) {

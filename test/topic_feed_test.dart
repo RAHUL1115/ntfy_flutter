@@ -89,6 +89,23 @@ void main() {
         'Later',
         'Earlier',
       ]);
+
+      final deleted = await controller.deleteMessage(
+        controller.state.messages.first.localId,
+      );
+      expect(controller.state.messages.single.message, 'Later');
+
+      await controller.restoreMessage(deleted!);
+      expect(controller.state.messages.map((message) => message.message), [
+        'Earlier',
+        'Later',
+      ]);
+
+      final requestCount = client.cursors.length;
+      await controller.clearMessages();
+      expect(client.cursors, hasLength(requestCount));
+      expect(controller.state.messages, isEmpty);
+      expect(controller.state.cursor, 'two');
     },
   );
 }
@@ -144,6 +161,21 @@ class _MemoryMessageRepository implements MessageRepository {
   @override
   Future<FeedSnapshot> loadFeed(int subscriptionId) async =>
       FeedSnapshot(messages: messages, cursor: cursor);
+
+  @override
+  Future<void> deleteMessage(int subscriptionId, int localId) async {
+    messages.removeWhere((message) => message.localId == localId);
+  }
+
+  @override
+  Future<void> restoreMessage(int subscriptionId, StoredMessage message) async {
+    if (messages.every((stored) => stored.eventId != message.eventId)) {
+      messages.add(message);
+    }
+  }
+
+  @override
+  Future<void> clearMessages(int subscriptionId) async => messages.clear();
 
   @override
   Future<StoredMessage?> ingest(

@@ -191,6 +191,32 @@ const _defaultRetryDelays = <Duration>[
 
 typedef TopicFeedFactory = TopicFeedSession Function(Subscription subscription);
 
+sealed class TopicFeedCommand {
+  const TopicFeedCommand();
+}
+
+final class PublishTopicMessage extends TopicFeedCommand {
+  const PublishTopicMessage(this.message);
+
+  final PublishMessage message;
+}
+
+final class DeleteLocalMessage extends TopicFeedCommand {
+  const DeleteLocalMessage(this.localId);
+
+  final int localId;
+}
+
+final class RestoreLocalMessage extends TopicFeedCommand {
+  const RestoreLocalMessage(this.message);
+
+  final StoredMessage message;
+}
+
+final class ClearLocalMessages extends TopicFeedCommand {
+  const ClearLocalMessages();
+}
+
 class TopicFeedSession {
   TopicFeedSession({required this.controller, NtfyPublisher? publisher})
     : publisher = publisher ?? HttpNtfyPublisher();
@@ -202,8 +228,20 @@ class TopicFeedSession {
   Stream<FeedState> get states => controller.states;
 
   Future<void> start() => controller.start();
-  Future<void> publish(PublishMessage message) =>
-      publisher.publish(controller.subscription.url, message);
+
+  Future<void> execute(TopicFeedCommand command) async {
+    switch (command) {
+      case PublishTopicMessage(:final message):
+        await publisher.publish(controller.subscription.url, message);
+      case DeleteLocalMessage(:final localId):
+        await controller.deleteMessage(localId);
+      case RestoreLocalMessage(:final message):
+        await controller.restoreMessage(message);
+      case ClearLocalMessages():
+        await controller.clearMessages();
+    }
+  }
+
   Future<void> close() => controller.close();
 }
 
@@ -333,6 +371,59 @@ class TopicFeedController {
     });
     await completer.future;
     if (identical(_retryCompleter, completer)) _retryCompleter = null;
+  }
+
+  Future<StoredMessage?> deleteMessage(int localId) async {
+    final deleted = _messages
+        .where((message) => message.localId == localId)
+        .firstOrNull;
+    if (deleted == null) return null;
+    _messages = List.unmodifiable(
+      _messages.where((message) => message.localId != localId),
+    );
+    _emit(_state.status, error: _state.error);
+    try {
+      await repository.deleteMessage(subscription.id, localId);
+      return deleted;
+    } catch (_) {
+      _messages = List.unmodifiable(
+        <StoredMessage>[..._messages, deleted]..sort(_compareStoredMessages),
+      );
+      _emit(_state.status, error: _state.error);
+      rethrow;
+    }
+  }
+
+  Future<void> restoreMessage(StoredMessage message) async {
+    if (message.subscriptionId != subscription.id) {
+      throw ArgumentError.value(
+        message.subscriptionId,
+        'message.subscriptionId',
+        'Must match the active subscription.',
+      );
+    }
+    if (_messages.any((stored) => stored.eventId == message.eventId)) return;
+    _messages = List.unmodifiable(
+      <StoredMessage>[..._messages, message]..sort(_compareStoredMessages),
+    );
+    _emit(_state.status, error: _state.error);
+    try {
+      await repository.restoreMessage(subscription.id, message);
+    } catch (_) {
+      _messages = List.unmodifiable(
+        _messages.where((stored) => stored.localId != message.localId),
+      );
+      _emit(_state.status, error: _state.error);
+      rethrow;
+    }
+  }
+
+  Future<void> clearMessages() async {
+    await repository.clearMessages(subscription.id);
+    final snapshot = await repository.loadFeed(subscription.id);
+    _messages = List.unmodifiable(snapshot.messages);
+    _cursor = snapshot.cursor;
+    _emit(_state.status, error: _state.error);
   }
 
   void _emit(FeedStatus status, {Object? error}) {

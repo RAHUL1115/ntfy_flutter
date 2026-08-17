@@ -66,6 +66,34 @@ void main() {
     );
   });
 
+  testWidgets('swipe removal confirms before deleting local subscription', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
+    await tester.pumpWidget(NtfyApp(store: store));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.text('Production'), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Unsubscribe from topic?'), findsOneWidget);
+    expect(find.textContaining('delete all locally stored'), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Production'), findsOneWidget);
+
+    await tester.drag(find.text('Production'), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Unsubscribe'));
+    await tester.pumpAndSettle();
+
+    expect(await store.all(), isEmpty);
+    expect(
+      find.text("It looks like you don't have any subscriptions yet."),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('keeps the dialog open while a subscription is saving', (
     tester,
   ) async {
@@ -205,6 +233,11 @@ class _DelayedSubscriptionRepository implements AppRepository {
   Future<List<Subscription>> all() async => _subscriptions;
 
   @override
+  Future<void> remove(int subscriptionId) async {
+    _subscriptions.removeWhere((item) => item.id == subscriptionId);
+  }
+
+  @override
   Future<FeedSnapshot> loadFeed(int subscriptionId) async =>
       FeedSnapshot(messages: []);
 
@@ -213,6 +246,18 @@ class _DelayedSubscriptionRepository implements AppRepository {
     int subscriptionId,
     IncomingMessage message,
   ) async => null;
+
+  @override
+  Future<void> deleteMessage(int subscriptionId, int localId) async {}
+
+  @override
+  Future<void> restoreMessage(
+    int subscriptionId,
+    StoredMessage message,
+  ) async {}
+
+  @override
+  Future<void> clearMessages(int subscriptionId) async {}
 }
 
 class _MemorySubscriptionRepository implements AppRepository {
@@ -240,6 +285,11 @@ class _MemorySubscriptionRepository implements AppRepository {
   Future<List<Subscription>> all() async => List.unmodifiable(_subscriptions);
 
   @override
+  Future<void> remove(int subscriptionId) async {
+    _subscriptions.removeWhere((item) => item.id == subscriptionId);
+  }
+
+  @override
   Future<FeedSnapshot> loadFeed(int subscriptionId) async =>
       FeedSnapshot(messages: []);
 
@@ -248,4 +298,16 @@ class _MemorySubscriptionRepository implements AppRepository {
     int subscriptionId,
     IncomingMessage message,
   ) async => null;
+
+  @override
+  Future<void> deleteMessage(int subscriptionId, int localId) async {}
+
+  @override
+  Future<void> restoreMessage(
+    int subscriptionId,
+    StoredMessage message,
+  ) async {}
+
+  @override
+  Future<void> clearMessages(int subscriptionId) async {}
 }
