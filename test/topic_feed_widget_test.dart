@@ -52,6 +52,52 @@ void main() {
     },
   );
 
+  testWidgets('resume reloads messages persisted by the background listener', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 1);
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: _WidgetClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    repository.messages.add(
+      StoredMessage(
+        localId: 2,
+        subscriptionId: 1,
+        eventId: 'background',
+        time: DateTime.utc(2026, 1, 2),
+        message: 'Received while backgrounded',
+      ),
+    );
+    expect(find.text('Received while backgrounded'), findsNothing);
+
+    for (final state in const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pumpAndSettle();
+
+    expect(find.text('Received while backgrounded'), findsOneWidget);
+  });
+
   testWidgets('offline and error states keep stored history visible', (
     tester,
   ) async {
@@ -521,6 +567,7 @@ class _WidgetRepository implements AppRepository {
   Object? removeError;
   RetentionPeriod globalRetention = RetentionPeriod.never;
   RetentionPeriod? topicRetention;
+  bool backgroundListening = false;
   final subscription = const Subscription(
     id: 1,
     url: 'https://ntfy.sh/alerts',
@@ -567,6 +614,14 @@ class _WidgetRepository implements AppRepository {
   @override
   Future<void> clearMessages(int subscriptionId) async {
     messages.removeWhere((message) => message.subscriptionId == subscriptionId);
+  }
+
+  @override
+  Future<bool> loadBackgroundListening() async => backgroundListening;
+
+  @override
+  Future<void> setBackgroundListening(bool enabled) async {
+    backgroundListening = enabled;
   }
 
   @override

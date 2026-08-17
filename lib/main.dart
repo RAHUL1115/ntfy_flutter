@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'background_listening.dart';
 import 'publish.dart';
 import 'retention.dart';
 import 'retention_settings.dart';
@@ -63,6 +64,7 @@ class NtfyApp extends StatefulWidget {
     TopicFeedFactory? feedFactory,
     NtfyPublisher? publisher,
     this.retention,
+    this.backgroundListening,
     super.key,
   }) : feedFactory =
            feedFactory ??
@@ -78,6 +80,7 @@ class NtfyApp extends StatefulWidget {
   final AppRepository store;
   final TopicFeedFactory feedFactory;
   final RetentionSession? retention;
+  final BackgroundListeningSession? backgroundListening;
 
   @override
   State<NtfyApp> createState() => _NtfyAppState();
@@ -85,14 +88,37 @@ class NtfyApp extends StatefulWidget {
 
 class _NtfyAppState extends State<NtfyApp> {
   late final RetentionSession _retention;
+  late final BackgroundListeningSession _backgroundListening;
   late final bool _ownsRetention;
+  final _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
   @override
   void initState() {
     super.initState();
     _ownsRetention = widget.retention == null;
     _retention = widget.retention ?? RetentionSession(widget.store);
+    _backgroundListening =
+        widget.backgroundListening ??
+        BackgroundListeningSession(
+          widget.store,
+          const AndroidBackgroundListeningHost(),
+        );
     _retention.start();
+    unawaited(_startBackgroundListening());
+  }
+
+  Future<void> _startBackgroundListening() async {
+    try {
+      await _backgroundListening.start();
+    } catch (_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _messengerKey.currentState?.showSnackBar(
+          const SnackBar(
+            content: Text('Could not start background listening.'),
+          ),
+        );
+      });
+    }
   }
 
   @override
@@ -104,6 +130,7 @@ class _NtfyAppState extends State<NtfyApp> {
   @override
   Widget build(BuildContext context) => MaterialApp(
     debugShowCheckedModeBanner: false,
+    scaffoldMessengerKey: _messengerKey,
     title: 'ntfy',
     theme: _lightTheme,
     darkTheme: _darkTheme,
@@ -112,6 +139,7 @@ class _NtfyAppState extends State<NtfyApp> {
       store: widget.store,
       feedFactory: widget.feedFactory,
       retention: _retention,
+      backgroundListening: _backgroundListening,
     ),
   );
 }
@@ -121,12 +149,14 @@ class SubscriptionsScreen extends StatefulWidget {
     required this.store,
     required this.feedFactory,
     required this.retention,
+    required this.backgroundListening,
     super.key,
   });
 
   final AppRepository store;
   final TopicFeedFactory feedFactory;
   final RetentionSession retention;
+  final BackgroundListeningSession backgroundListening;
 
   @override
   State<SubscriptionsScreen> createState() => _SubscriptionsScreenState();
@@ -152,7 +182,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
       barrierDismissible: false,
       builder: (_) => _SubscribeDialog(store: widget.store),
     );
-    if (saved != null) await _loadSubscriptions();
+    if (saved != null) {
+      await _loadSubscriptions();
+      await _refreshBackgroundListener();
+    }
   }
 
   Future<void> _openSubscription(Subscription subscription) async {
@@ -163,7 +196,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
           subscription: subscription,
           feed: feed,
           retention: widget.retention,
-          onUnsubscribe: () => widget.store.remove(subscription.id),
+          onUnsubscribe: () async {
+            await widget.store.remove(subscription.id);
+            await _refreshBackgroundListener();
+          },
         ),
       ),
     );
@@ -205,12 +241,29 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
     });
     try {
       await widget.store.remove(subscription.id);
+      await _refreshBackgroundListener();
     } catch (_) {
       await _loadSubscriptions();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Could not remove the subscription. Try again.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _refreshBackgroundListener() async {
+    try {
+      await widget.backgroundListening.execute(
+        const RefreshBackgroundListener(),
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not refresh background listening.'),
           ),
         );
       }
@@ -229,8 +282,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) =>
-                          SettingsScreen(retention: widget.retention),
+                      builder: (_) => SettingsScreen(
+                        retention: widget.retention,
+                        backgroundListening: widget.backgroundListening,
+                      ),
                     ),
                   );
                 },

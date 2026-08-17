@@ -3,6 +3,7 @@ import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/background_listening.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/retention.dart';
@@ -232,6 +233,45 @@ void main() {
     expect(store.globalRetention, RetentionPeriod.oneHour);
     expect(find.text('Auto-delete notifications after 1 hour'), findsOneWidget);
   });
+
+  testWidgets('settings controls background listening and its channel', (
+    tester,
+  ) async {
+    final host = _RecordingBackgroundHost();
+    final background = BackgroundListeningSession(store, host);
+    await tester.pumpWidget(
+      NtfyApp(store: store, backgroundListening: background),
+    );
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Background listening'), findsOneWidget);
+    expect(
+      find.textContaining('Android requires an ongoing notification'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Foreground listener notification settings'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const Key('background-listening-switch')));
+    await tester.pumpAndSettle();
+    expect(store.backgroundListening, isTrue);
+    expect(host.starts, 1);
+
+    await tester.tap(find.text('Foreground listener notification settings'));
+    await tester.pumpAndSettle();
+    expect(host.channelSettingsOpens, 1);
+
+    await tester.tap(find.byKey(const Key('background-listening-switch')));
+    await tester.pumpAndSettle();
+    expect(store.backgroundListening, isFalse);
+    expect(host.stops, 1);
+  });
 }
 
 class _DelayedSubscriptionRepository
@@ -287,6 +327,13 @@ class _DelayedSubscriptionRepository
 mixin _MemoryRetention {
   RetentionPeriod globalRetention = RetentionPeriod.never;
   final topicRetention = <int, RetentionPeriod?>{};
+  bool backgroundListening = false;
+
+  Future<bool> loadBackgroundListening() async => backgroundListening;
+
+  Future<void> setBackgroundListening(bool enabled) async {
+    backgroundListening = enabled;
+  }
 
   Future<RetentionSettings> loadRetention({int? subscriptionId}) async =>
       RetentionSettings(
@@ -306,6 +353,31 @@ mixin _MemoryRetention {
         break;
     }
   }
+}
+
+class _RecordingBackgroundHost implements BackgroundListeningHost {
+  int starts = 0;
+  int stops = 0;
+  int channelSettingsOpens = 0;
+
+  @override
+  Future<void> startOrRefresh() async => starts++;
+
+  @override
+  Future<void> stop() async => stops++;
+
+  @override
+  Future<void> requestNotificationPermission() async {}
+
+  @override
+  Future<void> openChannelSettings() async => channelSettingsOpens++;
+
+  @override
+  Future<BackgroundListeningHostStatus> status() async =>
+      const BackgroundListeningHostStatus(
+        running: false,
+        notificationPresent: false,
+      );
 }
 
 class _MemorySubscriptionRepository

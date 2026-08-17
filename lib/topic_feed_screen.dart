@@ -28,7 +28,8 @@ class TopicFeedScreen extends StatefulWidget {
   State<TopicFeedScreen> createState() => _TopicFeedScreenState();
 }
 
-class _TopicFeedScreenState extends State<TopicFeedScreen> {
+class _TopicFeedScreenState extends State<TopicFeedScreen>
+    with WidgetsBindingObserver {
   final _scrollController = ScrollController();
   StreamSubscription<FeedState>? _stateSubscription;
   StreamSubscription<void>? _retentionSubscription;
@@ -43,12 +44,20 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _state = widget.feed.state;
     _stateSubscription = widget.feed.states.listen(_onState);
     _retentionSubscription = widget.retention.changes.listen(
       (_) => unawaited(_refreshAfterRetention()),
     );
     unawaited(widget.feed.start());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshAfterRetention());
+    }
   }
 
   void _onState(FeedState next) {
@@ -277,6 +286,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stateSubscription?.cancel();
     _retentionSubscription?.cancel();
     _scrollController.dispose();

@@ -109,6 +109,73 @@ void main() {
     },
   );
 
+  test('empty successful streams continue bounded backoff', () async {
+    final client = _EofClient();
+    final controller = TopicFeedController(
+      repository: _MemoryMessageRepository(),
+      subscription: const Subscription(id: 7, url: 'https://ntfy.sh/alerts'),
+      client: client,
+      retryDelays: const [
+        Duration(milliseconds: 10),
+        Duration(milliseconds: 200),
+      ],
+    );
+    addTearDown(controller.close);
+
+    unawaited(controller.start());
+    await _until(() => client.connections == 2);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(client.connections, 2);
+  });
+
+  test('valid keepalive resets reconnect backoff', () async {
+    final client = _SequenceClient([
+      const [],
+      [
+        jsonEncode({'event': 'keepalive', 'topic': 'alerts'}),
+      ],
+      const [],
+    ]);
+    final controller = TopicFeedController(
+      repository: _MemoryMessageRepository(),
+      subscription: const Subscription(id: 7, url: 'https://ntfy.sh/alerts'),
+      client: client,
+      retryDelays: const [
+        Duration(milliseconds: 10),
+        Duration(milliseconds: 200),
+      ],
+    );
+    addTearDown(controller.close);
+
+    unawaited(controller.start());
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(client.cursors.length, greaterThanOrEqualTo(3));
+  });
+
+  test(
+    'duplicate ingestion reloads a message won by another runtime',
+    () async {
+      final repository = _DuplicateWinningRepository();
+      final controller = TopicFeedController(
+        repository: repository,
+        subscription: const Subscription(id: 7, url: 'https://ntfy.sh/alerts'),
+        client: _SequenceClient([
+          [_line('shared', 1, 'Stored by background runtime')],
+        ]),
+        retryDelays: const [Duration(days: 1)],
+      );
+      addTearDown(controller.close);
+
+      unawaited(controller.start());
+      await _until(() => controller.state.messages.length == 1);
+
+      expect(controller.state.messages.single.eventId, 'shared');
+      expect(controller.state.cursor, 'shared');
+    },
+  );
+
   test('refresh cannot resurrect a concurrently deleted message', () async {
     final repository = _DelayedLoadRepository()
       ..messages.add(
@@ -159,6 +226,19 @@ Future<void> _until(bool Function() condition) async {
   }
 }
 
+class _EofClient implements NtfyStreamClient {
+  int connections = 0;
+
+  @override
+  Future<FeedConnection> connect({
+    required String topicUrl,
+    String? cursor,
+  }) async {
+    connections++;
+    return FeedConnection(lines: const Stream.empty());
+  }
+}
+
 class _SequenceClient implements NtfyStreamClient, AbortableNtfyStreamClient {
   _SequenceClient(this.responses);
 
@@ -184,6 +264,31 @@ class _SequenceClient implements NtfyStreamClient, AbortableNtfyStreamClient {
 
   @override
   Future<void> abort() async => pending?.close();
+}
+
+class _DuplicateWinningRepository extends _MemoryMessageRepository {
+  @override
+  Future<StoredMessage?> ingest(
+    int subscriptionId,
+    IncomingMessage message,
+  ) async {
+    if (messages.isEmpty) {
+      messages.add(
+        StoredMessage(
+          localId: 1,
+          subscriptionId: subscriptionId,
+          eventId: message.eventId,
+          time: message.time,
+          message: message.message,
+          title: message.title,
+          priority: message.priority,
+          tags: message.tags,
+        ),
+      );
+      cursor = message.eventId;
+    }
+    return null;
+  }
 }
 
 class _DelayedLoadRepository extends _MemoryMessageRepository {

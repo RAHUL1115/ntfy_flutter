@@ -40,8 +40,18 @@ abstract interface class SubscriptionRepository {
   Future<void> remove(int subscriptionId);
 }
 
+abstract interface class BackgroundListeningRepository {
+  Future<bool> loadBackgroundListening();
+
+  Future<void> setBackgroundListening(bool enabled);
+}
+
 abstract interface class AppRepository
-    implements SubscriptionRepository, MessageRepository, RetentionRepository {}
+    implements
+        SubscriptionRepository,
+        MessageRepository,
+        RetentionRepository,
+        BackgroundListeningRepository {}
 
 class SubscriptionStore implements AppRepository {
   SubscriptionStore._(this._database);
@@ -58,7 +68,7 @@ class SubscriptionStore implements AppRepository {
     final database = await selectedFactory.openDatabase(
       selectedPath,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onConfigure: (database) => database.execute('PRAGMA foreign_keys = ON'),
         onCreate: (database, _) async {
           await database.execute('''
@@ -85,6 +95,9 @@ class SubscriptionStore implements AppRepository {
               'ALTER TABLE subscriptions ADD COLUMN retention_seconds INTEGER',
             );
             await _createRetentionSettingsSchema(database);
+          }
+          if (oldVersion < 4) {
+            await _addBackgroundListeningColumn(database);
           }
         },
       ),
@@ -268,6 +281,30 @@ class SubscriptionStore implements AppRepository {
       });
 
   @override
+  Future<bool> loadBackgroundListening() async {
+    final rows = await _database.query(
+      'app_settings',
+      columns: ['background_listening'],
+      where: 'id = 1',
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      throw StateError('Background listening settings are missing.');
+    }
+    return rows.single['background_listening'] == 1;
+  }
+
+  @override
+  Future<void> setBackgroundListening(bool enabled) async {
+    final updated = await _database.update('app_settings', {
+      'background_listening': enabled ? 1 : 0,
+    }, where: 'id = 1');
+    if (updated == 0) {
+      throw StateError('Background listening settings are missing.');
+    }
+  }
+
+  @override
   Future<void> executeRetention(RetentionCommand command) =>
       _database.transaction((transaction) async {
         switch (command) {
@@ -365,10 +402,26 @@ Future<void> _createRetentionSettingsSchema(DatabaseExecutor database) async {
   await database.execute('''
     CREATE TABLE app_settings (
       id INTEGER PRIMARY KEY CHECK(id = 1),
-      retention_seconds INTEGER NOT NULL DEFAULT 0
+      retention_seconds INTEGER NOT NULL DEFAULT 0,
+      background_listening INTEGER NOT NULL DEFAULT 0
     )
   ''');
-  await database.insert('app_settings', {'id': 1, 'retention_seconds': 0});
+  await database.insert('app_settings', {
+    'id': 1,
+    'retention_seconds': 0,
+    'background_listening': 0,
+  });
+}
+
+Future<void> _addBackgroundListeningColumn(DatabaseExecutor database) async {
+  final columns = await database.rawQuery('PRAGMA table_info(app_settings)');
+  if (columns.any((column) => column['name'] == 'background_listening')) {
+    return;
+  }
+  await database.execute(
+    'ALTER TABLE app_settings ADD COLUMN '
+    'background_listening INTEGER NOT NULL DEFAULT 0',
+  );
 }
 
 Future<int> _cleanupExpired(DatabaseExecutor database, DateTime now) =>

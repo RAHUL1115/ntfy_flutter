@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/background_listening.dart';
 import 'package:ntfy_flutter/publish.dart';
 import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
@@ -210,6 +211,97 @@ void main() {
   );
 
   test(
+    'background runtime persists across restarts without closing the UI store',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'ntfy_background_acceptance',
+      );
+      final databasePath = '${directory.path}/ntfy.db';
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      var connections = 0;
+      final serverDone = server.listen((request) async {
+        connections++;
+        request.response.headers.contentType = ContentType(
+          'application',
+          'x-ndjson',
+          charset: 'utf-8',
+        );
+        request.response.writeln(
+          _event(
+            'background-$connections',
+            connections,
+            'Background $connections',
+          ),
+        );
+        await request.response.close();
+      }).asFuture<void>();
+      addTearDown(() async {
+        await server.close(force: true);
+        await serverDone;
+        await directory.delete(recursive: true);
+      });
+
+      final uiStore = await SubscriptionStore.open(
+        factory: databaseFactoryFfi,
+        path: databasePath,
+      );
+      addTearDown(uiStore.close);
+      final subscription = await uiStore.add(
+        url: 'http://${server.address.host}:${server.port}/alerts',
+      );
+      await uiStore.setBackgroundListening(true);
+
+      BackgroundListenerRuntime runtimeFor(AppRepository repository) =>
+          BackgroundListenerRuntime(
+            repository,
+            clientFactory: (_) => HttpNtfyStreamClient(),
+            retention: RetentionSession(
+              repository,
+              cleanupInterval: const Duration(days: 1),
+            ),
+          );
+
+      final firstServiceStore = await SubscriptionStore.open(
+        factory: databaseFactoryFfi,
+        path: databasePath,
+      );
+      final firstRuntime = runtimeFor(firstServiceStore);
+      expect(await firstRuntime.start(), isTrue);
+      await _until(() => connections >= 1);
+      await _untilAsync(
+        () async =>
+            (await uiStore.loadFeed(subscription.id)).messages.length == 1,
+      );
+      await firstRuntime.stop();
+      expect(
+        (await uiStore.loadFeed(subscription.id)).messages.single.message,
+        'Background 1',
+      );
+
+      final secondServiceStore = await SubscriptionStore.open(
+        factory: databaseFactoryFfi,
+        path: databasePath,
+      );
+      final secondRuntime = runtimeFor(secondServiceStore);
+      expect(await secondRuntime.start(), isTrue);
+      await _untilAsync(
+        () async =>
+            (await uiStore.loadFeed(subscription.id)).messages.length == 2,
+      );
+      await secondRuntime.stop();
+
+      final snapshot = await uiStore.loadFeed(subscription.id);
+      expect(snapshot.messages.map((message) => message.eventId), [
+        'background-1',
+        'background-2',
+      ]);
+      expect(snapshot.cursor, 'background-2');
+      await uiStore.setBackgroundListening(false);
+    },
+    timeout: const Timeout(Duration(seconds: 10)),
+  );
+
+  test(
     'local cleanup and unsubscribe send no deletion requests to ntfy',
     () async {
       final directory = await Directory.systemTemp.createTemp(
@@ -295,6 +387,14 @@ String _event(
   if (priority != null) event['priority'] = priority;
   if (tags != null) event['tags'] = tags;
   return jsonEncode(event);
+}
+
+Future<void> _untilAsync(Future<bool> Function() condition) async {
+  final deadline = DateTime.now().add(const Duration(seconds: 5));
+  while (!await condition()) {
+    if (DateTime.now().isAfter(deadline)) throw TimeoutException('condition');
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
 }
 
 Future<void> _until(bool Function() condition) async {

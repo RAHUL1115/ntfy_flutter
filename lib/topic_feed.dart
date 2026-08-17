@@ -120,7 +120,24 @@ Uri buildFeedUri(String topicUrl, String? cursor) {
   );
 }
 
-IncomingMessage? parseNtfyLine(String line, String expectedTopic) {
+class NtfyMessageEvent {
+  const NtfyMessageEvent({required this.topic, required this.message});
+
+  final String topic;
+  final IncomingMessage message;
+}
+
+bool isNtfyProtocolLine(String line) {
+  try {
+    final decoded = jsonDecode(line);
+    return decoded is Map<String, dynamic> &&
+        (decoded['event'] == 'keepalive' || decoded['event'] == 'message');
+  } catch (_) {
+    return false;
+  }
+}
+
+NtfyMessageEvent? parseNtfyMessageEvent(String line) {
   try {
     final decoded = jsonDecode(line);
     if (decoded is! Map<String, dynamic> || decoded['event'] != 'message') {
@@ -128,7 +145,7 @@ IncomingMessage? parseNtfyLine(String line, String expectedTopic) {
     }
 
     final topic = decoded['topic'];
-    if (topic is! String || topic != _topicName(expectedTopic)) return null;
+    if (topic is! String || topic.isEmpty) return null;
 
     final eventId = decoded['id'];
     final time = decoded['time'];
@@ -156,17 +173,27 @@ IncomingMessage? parseNtfyLine(String line, String expectedTopic) {
         : null;
     if (tags == null) return null;
 
-    return IncomingMessage(
-      eventId: eventId,
-      time: DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true),
-      message: message,
-      title: titleValue is String && titleValue.isNotEmpty ? titleValue : null,
-      priority: priority,
-      tags: List.unmodifiable(tags),
+    return NtfyMessageEvent(
+      topic: topic,
+      message: IncomingMessage(
+        eventId: eventId,
+        time: DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true),
+        message: message,
+        title: titleValue is String && titleValue.isNotEmpty
+            ? titleValue
+            : null,
+        priority: priority,
+        tags: List.unmodifiable(tags),
+      ),
     );
   } catch (_) {
     return null;
   }
+}
+
+IncomingMessage? parseNtfyLine(String line, String expectedTopic) {
+  final event = parseNtfyMessageEvent(line);
+  return event?.topic == _topicName(expectedTopic) ? event?.message : null;
 }
 
 String _topicName(String value) {
@@ -307,7 +334,6 @@ class TopicFeedController {
           if (_closed) return;
 
           _connection = connection;
-          _retryIndex = 0;
           _emit(FeedStatus.connected);
           final result = await _readConnection(connection);
           if (_closed || result == _ConnectionResult.closed) return;
@@ -345,12 +371,16 @@ class TopicFeedController {
     try {
       await for (final line in connection.lines) {
         if (_closed) return _ConnectionResult.closed;
+        if (isNtfyProtocolLine(line)) _retryIndex = 0;
         final incoming = parseNtfyLine(line, subscription.url);
         if (incoming == null) continue;
 
         await _serialize(() async {
           final stored = await repository.ingest(subscription.id, incoming);
-          if (stored == null) return;
+          if (stored == null) {
+            await _refreshLocalMessages();
+            return;
+          }
           _cursor = stored.eventId;
           _retryIndex = 0;
           final nextMessages = [..._messages, stored]

@@ -132,6 +132,30 @@ void main() {
 
     expect((await store.all()).single.displayName, 'Existing');
     expect((await store.loadFeed(1)).messages, isEmpty);
+    expect(await store.loadBackgroundListening(), isFalse);
+  });
+
+  test('persists the background-listening opt-in', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'ntfy_background_setting',
+    );
+    final path = '${directory.path}/ntfy.db';
+    addTearDown(() => directory.delete(recursive: true));
+
+    final firstStore = await SubscriptionStore.open(
+      factory: databaseFactoryFfi,
+      path: path,
+    );
+    expect(await firstStore.loadBackgroundListening(), isFalse);
+    await firstStore.setBackgroundListening(true);
+    await firstStore.close();
+
+    final reopenedStore = await SubscriptionStore.open(
+      factory: databaseFactoryFfi,
+      path: path,
+    );
+    addTearDown(reopenedStore.close);
+    expect(await reopenedStore.loadBackgroundListening(), isTrue);
   });
 
   test('persists messages oldest first with all supported fields', () async {

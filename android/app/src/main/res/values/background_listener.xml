@@ -1,0 +1,4 @@
+<resources>
+    <string name="background_listener_channel_name">Background listener</string>
+    <string name="background_listener_notification_title">Listening for ntfy messages</string>
+</resources>

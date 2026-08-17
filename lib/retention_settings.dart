@@ -1,17 +1,28 @@
 import 'package:flutter/material.dart';
 
+import 'background_listening.dart';
 import 'retention.dart';
 import 'subscriptions.dart';
 
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({required this.retention, super.key});
+  const SettingsScreen({
+    required this.retention,
+    required this.backgroundListening,
+    super.key,
+  });
 
   final RetentionSession retention;
+  final BackgroundListeningSession backgroundListening;
 
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Settings')),
-    body: _RetentionSettings(retention: retention),
+    body: ListView(
+      children: [
+        _RetentionSettings(retention: retention),
+        _BackgroundListeningSettings(session: backgroundListening),
+      ],
+    ),
   );
 }
 
@@ -161,6 +172,94 @@ class _RetentionSettingsState extends State<_RetentionSettings> {
             ),
             onTap: _select,
           ),
+      ],
+    );
+  }
+}
+
+class _BackgroundListeningSettings extends StatefulWidget {
+  const _BackgroundListeningSettings({required this.session});
+
+  final BackgroundListeningSession session;
+
+  @override
+  State<_BackgroundListeningSettings> createState() =>
+      _BackgroundListeningSettingsState();
+}
+
+class _BackgroundListeningSettingsState
+    extends State<_BackgroundListeningSettings> {
+  BackgroundListeningSettings? _settings;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final settings = await widget.session.load();
+    if (mounted) setState(() => _settings = settings);
+  }
+
+  Future<void> _setEnabled(bool enabled) async {
+    setState(() => _saving = true);
+    try {
+      await widget.session.execute(SetBackgroundListening(enabled));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not update background listening.'),
+          ),
+        );
+      }
+    } finally {
+      await _load();
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _openChannelSettings() async {
+    try {
+      await widget.session.execute(const OpenBackgroundChannelSettings());
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open Android notification settings.'),
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = _settings?.enabled ?? false;
+    return Column(
+      children: [
+        SwitchListTile(
+          key: const Key('background-listening-switch'),
+          title: const Text('Background listening'),
+          subtitle: const Text(
+            'Receive messages while the app is closed. Android requires an '
+            'ongoing notification while this is enabled. If notification '
+            'permission is denied, listening continues and Android shows the '
+            'service in Task Manager.',
+          ),
+          value: enabled,
+          onChanged: _settings == null || _saving ? null : _setEnabled,
+        ),
+        ListTile(
+          key: const Key('background-channel-settings'),
+          title: const Text('Foreground listener notification settings'),
+          subtitle: const Text(
+            'Control the required ongoing notification in Android.',
+          ),
+          onTap: _openChannelSettings,
+        ),
       ],
     );
   }
