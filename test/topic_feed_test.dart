@@ -108,6 +108,39 @@ void main() {
       expect(controller.state.cursor, 'two');
     },
   );
+
+  test('refresh cannot resurrect a concurrently deleted message', () async {
+    final repository = _DelayedLoadRepository()
+      ..messages.add(
+        StoredMessage(
+          localId: 1,
+          subscriptionId: 7,
+          eventId: 'old',
+          time: DateTime.utc(2026),
+          message: 'Old',
+        ),
+      )
+      ..cursor = 'old';
+    final controller = TopicFeedController(
+      repository: repository,
+      subscription: const Subscription(id: 7, url: 'https://ntfy.sh/alerts'),
+      client: _SequenceClient(const []),
+      retryDelays: const [Duration.zero],
+    );
+    addTearDown(controller.close);
+    unawaited(controller.start());
+    await _until(() => controller.state.messages.length == 1);
+
+    final refresh = controller.refreshLocalMessages();
+    await repository.refreshStarted.future;
+    final deletion = controller.deleteMessage(1);
+    repository.releaseRefresh.complete();
+    await Future.wait([refresh, deletion]);
+
+    expect(controller.state.messages, isEmpty);
+    expect(repository.messages, isEmpty);
+    expect(controller.state.cursor, 'old');
+  });
 }
 
 String _line(String id, int time, String message) => jsonEncode({
@@ -151,6 +184,22 @@ class _SequenceClient implements NtfyStreamClient, AbortableNtfyStreamClient {
 
   @override
   Future<void> abort() async => pending?.close();
+}
+
+class _DelayedLoadRepository extends _MemoryMessageRepository {
+  var loadCount = 0;
+  final refreshStarted = Completer<void>();
+  final releaseRefresh = Completer<void>();
+
+  @override
+  Future<FeedSnapshot> loadFeed(int subscriptionId) async {
+    loadCount++;
+    if (loadCount == 1) return super.loadFeed(subscriptionId);
+    final snapshot = FeedSnapshot(messages: messages, cursor: cursor);
+    refreshStarted.complete();
+    await releaseRefresh.future;
+    return snapshot;
+  }
 }
 
 class _MemoryMessageRepository implements MessageRepository {

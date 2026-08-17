@@ -5,6 +5,8 @@ import 'package:flutter/semantics.dart';
 
 import 'messages.dart';
 import 'publish.dart';
+import 'retention.dart';
+import 'retention_settings.dart';
 import 'subscriptions.dart';
 import 'topic_feed.dart';
 
@@ -12,12 +14,14 @@ class TopicFeedScreen extends StatefulWidget {
   const TopicFeedScreen({
     required this.subscription,
     required this.feed,
+    required this.retention,
     this.onUnsubscribe,
     super.key,
   });
 
   final Subscription subscription;
   final TopicFeedSession feed;
+  final RetentionSession retention;
   final Future<void> Function()? onUnsubscribe;
 
   @override
@@ -27,6 +31,7 @@ class TopicFeedScreen extends StatefulWidget {
 class _TopicFeedScreenState extends State<TopicFeedScreen> {
   final _scrollController = ScrollController();
   StreamSubscription<FeedState>? _stateSubscription;
+  StreamSubscription<void>? _retentionSubscription;
   late FeedState _state;
   final _messageKeys = <String, GlobalKey>{};
   var _initialScrollDone = false;
@@ -40,6 +45,9 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
     super.initState();
     _state = widget.feed.state;
     _stateSubscription = widget.feed.states.listen(_onState);
+    _retentionSubscription = widget.retention.changes.listen(
+      (_) => unawaited(_refreshAfterRetention()),
+    );
     unawaited(widget.feed.start());
   }
 
@@ -176,6 +184,23 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
     }
   }
 
+  Future<void> _openSettings() => Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => TopicSettingsScreen(
+        subscription: widget.subscription,
+        retention: widget.retention,
+      ),
+    ),
+  );
+
+  Future<void> _refreshAfterRetention() async {
+    try {
+      await widget.feed.execute(const RefreshLocalMessages());
+    } catch (_) {
+      _showCleanupError('Could not refresh notifications. Try again.');
+    }
+  }
+
   Future<void> _confirmClear() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -253,6 +278,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
   @override
   void dispose() {
     _stateSubscription?.cancel();
+    _retentionSubscription?.cancel();
     _scrollController.dispose();
     _quickMessage.dispose();
     unawaited(widget.feed.close());
@@ -275,6 +301,8 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
           PopupMenuButton<_TopicAction>(
             onSelected: (action) {
               switch (action) {
+                case _TopicAction.settings:
+                  unawaited(_openSettings());
                 case _TopicAction.clear:
                   unawaited(_confirmClear());
                 case _TopicAction.unsubscribe:
@@ -282,6 +310,10 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
               }
             },
             itemBuilder: (_) => [
+              const PopupMenuItem(
+                value: _TopicAction.settings,
+                child: Text('Subscription settings'),
+              ),
               PopupMenuItem(
                 value: _TopicAction.clear,
                 enabled: _state.messages.isNotEmpty,
@@ -387,7 +419,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
   }
 }
 
-enum _TopicAction { clear, unsubscribe }
+enum _TopicAction { settings, clear, unsubscribe }
 
 class _MessageDeleteBackground extends StatelessWidget {
   const _MessageDeleteBackground({required this.alignment});

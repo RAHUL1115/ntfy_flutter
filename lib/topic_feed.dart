@@ -217,6 +217,10 @@ final class ClearLocalMessages extends TopicFeedCommand {
   const ClearLocalMessages();
 }
 
+final class RefreshLocalMessages extends TopicFeedCommand {
+  const RefreshLocalMessages();
+}
+
 class TopicFeedSession {
   TopicFeedSession({required this.controller, NtfyPublisher? publisher})
     : publisher = publisher ?? HttpNtfyPublisher();
@@ -239,6 +243,8 @@ class TopicFeedSession {
         await controller.restoreMessage(message);
       case ClearLocalMessages():
         await controller.clearMessages();
+      case RefreshLocalMessages():
+        await controller.refreshLocalMessages();
     }
   }
 
@@ -264,6 +270,7 @@ class TopicFeedController {
   String? _cursor;
   FeedConnection? _connection;
   Future<void>? _runFuture;
+  Future<void> _operationTail = Future<void>.value();
   Timer? _retryTimer;
   Completer<void>? _retryCompleter;
   var _closed = false;
@@ -282,11 +289,13 @@ class TopicFeedController {
 
   Future<void> _run() async {
     try {
-      final snapshot = await repository.loadFeed(subscription.id);
-      if (_closed) return;
-      _messages = List.unmodifiable(snapshot.messages);
-      _cursor = snapshot.cursor;
-      _emit(FeedStatus.connecting);
+      await _serialize(() async {
+        final snapshot = await repository.loadFeed(subscription.id);
+        if (_closed) return;
+        _messages = List.unmodifiable(snapshot.messages);
+        _cursor = snapshot.cursor;
+        _emit(FeedStatus.connecting);
+      });
 
       while (!_closed) {
         FeedConnection? connection;
@@ -339,14 +348,16 @@ class TopicFeedController {
         final incoming = parseNtfyLine(line, subscription.url);
         if (incoming == null) continue;
 
-        final stored = await repository.ingest(subscription.id, incoming);
-        if (stored == null) continue;
-        _cursor = stored.eventId;
-        _retryIndex = 0;
-        final nextMessages = [..._messages, stored]
-          ..sort(_compareStoredMessages);
-        _messages = List.unmodifiable(nextMessages);
-        _emit(FeedStatus.connected);
+        await _serialize(() async {
+          final stored = await repository.ingest(subscription.id, incoming);
+          if (stored == null) return;
+          _cursor = stored.eventId;
+          _retryIndex = 0;
+          final nextMessages = [..._messages, stored]
+            ..sort(_compareStoredMessages);
+          _messages = List.unmodifiable(nextMessages);
+          _emit(FeedStatus.connected);
+        });
       }
       return _closed ? _ConnectionResult.closed : _ConnectionResult.eof;
     } catch (error) {
@@ -373,7 +384,7 @@ class TopicFeedController {
     if (identical(_retryCompleter, completer)) _retryCompleter = null;
   }
 
-  Future<StoredMessage?> deleteMessage(int localId) async {
+  Future<StoredMessage?> deleteMessage(int localId) => _serialize(() async {
     final deleted = _messages
         .where((message) => message.localId == localId)
         .firstOrNull;
@@ -392,9 +403,9 @@ class TopicFeedController {
       _emit(_state.status, error: _state.error);
       rethrow;
     }
-  }
+  });
 
-  Future<void> restoreMessage(StoredMessage message) async {
+  Future<void> restoreMessage(StoredMessage message) => _serialize(() async {
     if (message.subscriptionId != subscription.id) {
       throw ArgumentError.value(
         message.subscriptionId,
@@ -416,14 +427,26 @@ class TopicFeedController {
       _emit(_state.status, error: _state.error);
       rethrow;
     }
-  }
+  });
 
-  Future<void> clearMessages() async {
+  Future<void> clearMessages() => _serialize(() async {
     await repository.clearMessages(subscription.id);
+    await _refreshLocalMessages();
+  });
+
+  Future<void> refreshLocalMessages() => _serialize(_refreshLocalMessages);
+
+  Future<void> _refreshLocalMessages() async {
     final snapshot = await repository.loadFeed(subscription.id);
     _messages = List.unmodifiable(snapshot.messages);
     _cursor = snapshot.cursor;
     _emit(_state.status, error: _state.error);
+  }
+
+  Future<T> _serialize<T>(Future<T> Function() operation) {
+    final result = _operationTail.then((_) => operation());
+    _operationTail = result.then<void>((_) {}, onError: (_, _) {});
+    return result;
   }
 
   void _emit(FeedStatus status, {Object? error}) {
@@ -464,6 +487,7 @@ class TopicFeedController {
 
     final run = _runFuture;
     if (run != null) await run;
+    await _operationTail;
     await _states.close();
   }
 

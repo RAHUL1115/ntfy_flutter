@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/publish.dart';
+import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -254,6 +255,15 @@ void main() {
 
       await session.execute(DeleteLocalMessage(message.localId));
       await session.execute(RestoreLocalMessage(message));
+      await store.executeRetention(
+        SetTopicRetention(
+          subscription.id,
+          RetentionPeriod.oneHour,
+          now: DateTime.utc(2026),
+        ),
+      );
+      await session.execute(const RefreshLocalMessages());
+      expect(session.state.messages, isEmpty);
       await session.execute(const ClearLocalMessages());
       await session.close();
       await store.remove(subscription.id);

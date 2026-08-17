@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/publish.dart';
+import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 
@@ -339,6 +340,54 @@ void main() {
     expect(await repository.all(), [repository.subscription]);
   });
 
+  testWidgets('topic settings overrides retention and refreshes the feed', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 1);
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: _WidgetClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Show menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subscription settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notifications'), findsOneWidget);
+    expect(find.text('Delete notifications'), findsOneWidget);
+    expect(
+      find.text('Never auto-delete notifications (using global setting)'),
+      findsOneWidget,
+    );
+    expect(find.text('Topic URL'), findsOneWidget);
+    await tester.tap(find.text('Delete notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Use global setting'), findsOneWidget);
+    await tester.tap(find.text('After 3 hours'));
+    await tester.pumpAndSettle();
+
+    expect(repository.topicRetention, RetentionPeriod.threeHours);
+    expect(
+      find.text('Auto-delete notifications after 3 hours'),
+      findsOneWidget,
+    );
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Body 0'), findsNothing);
+  });
+
   testWidgets('composer validates and preserves a failed draft for retry', (
     tester,
   ) async {
@@ -470,6 +519,8 @@ class _WidgetRepository implements AppRepository {
   final List<StoredMessage> messages;
   var removed = false;
   Object? removeError;
+  RetentionPeriod globalRetention = RetentionPeriod.never;
+  RetentionPeriod? topicRetention;
   final subscription = const Subscription(
     id: 1,
     url: 'https://ntfy.sh/alerts',
@@ -516,6 +567,30 @@ class _WidgetRepository implements AppRepository {
   @override
   Future<void> clearMessages(int subscriptionId) async {
     messages.removeWhere((message) => message.subscriptionId == subscriptionId);
+  }
+
+  @override
+  Future<RetentionSettings> loadRetention({int? subscriptionId}) async =>
+      RetentionSettings(
+        global: globalRetention,
+        override: subscriptionId == null ? null : topicRetention,
+      );
+
+  @override
+  Future<void> executeRetention(RetentionCommand command) async {
+    switch (command) {
+      case SetGlobalRetention(:final period):
+        globalRetention = period;
+      case SetTopicRetention(:final period):
+        topicRetention = period;
+      case RunRetentionCleanup():
+        break;
+    }
+    final effective = topicRetention ?? globalRetention;
+    if (effective != RetentionPeriod.never) {
+      final cutoff = command.now.toUtc().subtract(effective.duration);
+      messages.removeWhere((message) => message.time.isBefore(cutoff));
+    }
   }
 
   @override

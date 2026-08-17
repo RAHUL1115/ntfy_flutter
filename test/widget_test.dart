@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
+import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 
 void main() {
@@ -198,7 +200,10 @@ void main() {
     }
   });
 
-  testWidgets('opens settings from the app bar menu', (tester) async {
+  testWidgets('global settings selects and persists message retention', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
     await tester.pumpWidget(NtfyApp(store: store));
 
     await tester.tap(find.byIcon(Icons.more_vert));
@@ -208,11 +213,30 @@ void main() {
 
     expect(find.text('Settings'), findsOneWidget);
     expect(find.byTooltip('Back'), findsOneWidget);
-    expect(find.text('Subscribed topics'), findsNothing);
+    expect(find.text('Notifications'), findsOneWidget);
+    expect(find.text('Delete notifications'), findsOneWidget);
+    expect(find.text('Never auto-delete notifications'), findsOneWidget);
+
+    await tester.tap(find.text('Delete notifications'));
+    await tester.pumpAndSettle();
+    for (final period in RetentionPeriod.values) {
+      expect(find.text(period.label), findsOneWidget);
+    }
+    final selected = tester.getSemantics(find.bySemanticsLabel('Never'));
+    expect(selected.flagsCollection.isSelected, Tristate.isTrue);
+    expect(selected.flagsCollection.isInMutuallyExclusiveGroup, isTrue);
+    semantics.dispose();
+    await tester.tap(find.text('After 1 hour'));
+    await tester.pumpAndSettle();
+
+    expect(store.globalRetention, RetentionPeriod.oneHour);
+    expect(find.text('Auto-delete notifications after 1 hour'), findsOneWidget);
   });
 }
 
-class _DelayedSubscriptionRepository implements AppRepository {
+class _DelayedSubscriptionRepository
+    with _MemoryRetention
+    implements AppRepository {
   final _pending = Completer<Subscription>();
   var _subscriptions = <Subscription>[];
 
@@ -260,7 +284,33 @@ class _DelayedSubscriptionRepository implements AppRepository {
   Future<void> clearMessages(int subscriptionId) async {}
 }
 
-class _MemorySubscriptionRepository implements AppRepository {
+mixin _MemoryRetention {
+  RetentionPeriod globalRetention = RetentionPeriod.never;
+  final topicRetention = <int, RetentionPeriod?>{};
+
+  Future<RetentionSettings> loadRetention({int? subscriptionId}) async =>
+      RetentionSettings(
+        global: globalRetention,
+        override: subscriptionId == null
+            ? null
+            : topicRetention[subscriptionId],
+      );
+
+  Future<void> executeRetention(RetentionCommand command) async {
+    switch (command) {
+      case SetGlobalRetention(:final period):
+        globalRetention = period;
+      case SetTopicRetention(:final subscriptionId, :final period):
+        topicRetention[subscriptionId] = period;
+      case RunRetentionCleanup():
+        break;
+    }
+  }
+}
+
+class _MemorySubscriptionRepository
+    with _MemoryRetention
+    implements AppRepository {
   final _subscriptions = <Subscription>[];
 
   @override

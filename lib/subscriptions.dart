@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import 'messages.dart';
+import 'retention.dart';
 
 class Subscription {
   const Subscription({required this.id, required this.url, this.displayName});
@@ -40,7 +41,7 @@ abstract interface class SubscriptionRepository {
 }
 
 abstract interface class AppRepository
-    implements SubscriptionRepository, MessageRepository {}
+    implements SubscriptionRepository, MessageRepository, RetentionRepository {}
 
 class SubscriptionStore implements AppRepository {
   SubscriptionStore._(this._database);
@@ -57,7 +58,7 @@ class SubscriptionStore implements AppRepository {
     final database = await selectedFactory.openDatabase(
       selectedPath,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onConfigure: (database) => database.execute('PRAGMA foreign_keys = ON'),
         onCreate: (database, _) async {
           await database.execute('''
@@ -65,10 +66,12 @@ class SubscriptionStore implements AppRepository {
               id INTEGER PRIMARY KEY AUTOINCREMENT,
               url TEXT NOT NULL UNIQUE,
               display_name TEXT,
-              last_message_id TEXT
+              last_message_id TEXT,
+              retention_seconds INTEGER
             )
           ''');
           await _createMessagesSchema(database);
+          await _createRetentionSettingsSchema(database);
         },
         onUpgrade: (database, oldVersion, _) async {
           if (oldVersion < 2) {
@@ -76,6 +79,12 @@ class SubscriptionStore implements AppRepository {
               'ALTER TABLE subscriptions ADD COLUMN last_message_id TEXT',
             );
             await _createMessagesSchema(database);
+          }
+          if (oldVersion < 3) {
+            await database.execute(
+              'ALTER TABLE subscriptions ADD COLUMN retention_seconds INTEGER',
+            );
+            await _createRetentionSettingsSchema(database);
           }
         },
       ),
@@ -221,6 +230,67 @@ class SubscriptionStore implements AppRepository {
     whereArgs: [subscriptionId],
   );
 
+  @override
+  Future<RetentionSettings> loadRetention({int? subscriptionId}) =>
+      _database.transaction((transaction) async {
+        final settingsRows = await transaction.query(
+          'app_settings',
+          columns: ['retention_seconds'],
+          where: 'id = 1',
+          limit: 1,
+        );
+        if (settingsRows.isEmpty) {
+          throw StateError('Global retention settings are missing.');
+        }
+        final global = RetentionPeriod.fromSeconds(
+          settingsRows.single['retention_seconds']! as int,
+        );
+        if (subscriptionId == null) {
+          return RetentionSettings(global: global);
+        }
+        final subscriptionRows = await transaction.query(
+          'subscriptions',
+          columns: ['retention_seconds'],
+          where: 'id = ?',
+          whereArgs: [subscriptionId],
+          limit: 1,
+        );
+        if (subscriptionRows.isEmpty) {
+          throw StateError('Subscription $subscriptionId does not exist.');
+        }
+        final seconds = subscriptionRows.single['retention_seconds'] as int?;
+        return RetentionSettings(
+          global: global,
+          override: seconds == null
+              ? null
+              : RetentionPeriod.fromSeconds(seconds),
+        );
+      });
+
+  @override
+  Future<void> executeRetention(RetentionCommand command) =>
+      _database.transaction((transaction) async {
+        switch (command) {
+          case SetGlobalRetention(:final period):
+            await transaction.update('app_settings', {
+              'retention_seconds': period.seconds,
+            }, where: 'id = 1');
+          case SetTopicRetention(:final subscriptionId, :final period):
+            final updated = await transaction.update(
+              'subscriptions',
+              {'retention_seconds': period?.seconds},
+              where: 'id = ?',
+              whereArgs: [subscriptionId],
+            );
+            if (updated == 0) {
+              throw StateError('Subscription $subscriptionId does not exist.');
+            }
+          case RunRetentionCleanup():
+            break;
+        }
+        await _cleanupExpired(transaction, command.now.toUtc());
+      });
+
   Future<void> close() => _database.close();
 
   static String normalizeUrl(String input) {
@@ -290,6 +360,39 @@ Future<void> _createMessagesSchema(DatabaseExecutor database) async {
     ON messages(subscription_id, event_time, local_id)
   ''');
 }
+
+Future<void> _createRetentionSettingsSchema(DatabaseExecutor database) async {
+  await database.execute('''
+    CREATE TABLE app_settings (
+      id INTEGER PRIMARY KEY CHECK(id = 1),
+      retention_seconds INTEGER NOT NULL DEFAULT 0
+    )
+  ''');
+  await database.insert('app_settings', {'id': 1, 'retention_seconds': 0});
+}
+
+Future<int> _cleanupExpired(DatabaseExecutor database, DateTime now) =>
+    database.rawDelete(
+      '''
+    DELETE FROM messages
+    WHERE EXISTS (
+      SELECT 1
+      FROM subscriptions
+      CROSS JOIN app_settings
+      WHERE subscriptions.id = messages.subscription_id
+        AND app_settings.id = 1
+        AND COALESCE(
+          subscriptions.retention_seconds,
+          app_settings.retention_seconds
+        ) > 0
+        AND messages.event_time < ? - 1000 * COALESCE(
+          subscriptions.retention_seconds,
+          app_settings.retention_seconds
+        )
+    )
+  ''',
+      [now.millisecondsSinceEpoch],
+    );
 
 StoredMessage _storedMessageFromRow(Map<String, Object?> row) => StoredMessage(
   localId: row['local_id']! as int,

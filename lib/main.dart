@@ -1,6 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'publish.dart';
+import 'retention.dart';
+import 'retention_settings.dart';
 import 'subscriptions.dart';
 import 'topic_feed.dart';
 import 'topic_feed_screen.dart';
@@ -53,11 +57,12 @@ Future<void> main() async {
   runApp(NtfyApp(store: store));
 }
 
-class NtfyApp extends StatelessWidget {
+class NtfyApp extends StatefulWidget {
   NtfyApp({
     required this.store,
     TopicFeedFactory? feedFactory,
     NtfyPublisher? publisher,
+    this.retention,
     super.key,
   }) : feedFactory =
            feedFactory ??
@@ -72,29 +77,56 @@ class NtfyApp extends StatelessWidget {
 
   final AppRepository store;
   final TopicFeedFactory feedFactory;
+  final RetentionSession? retention;
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'ntfy',
-      theme: _lightTheme,
-      darkTheme: _darkTheme,
-      themeMode: ThemeMode.system,
-      home: SubscriptionsScreen(store: store, feedFactory: feedFactory),
-    );
+  State<NtfyApp> createState() => _NtfyAppState();
+}
+
+class _NtfyAppState extends State<NtfyApp> {
+  late final RetentionSession _retention;
+  late final bool _ownsRetention;
+
+  @override
+  void initState() {
+    super.initState();
+    _ownsRetention = widget.retention == null;
+    _retention = widget.retention ?? RetentionSession(widget.store);
+    _retention.start();
   }
+
+  @override
+  void dispose() {
+    if (_ownsRetention) unawaited(_retention.close());
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    debugShowCheckedModeBanner: false,
+    title: 'ntfy',
+    theme: _lightTheme,
+    darkTheme: _darkTheme,
+    themeMode: ThemeMode.system,
+    home: SubscriptionsScreen(
+      store: widget.store,
+      feedFactory: widget.feedFactory,
+      retention: _retention,
+    ),
+  );
 }
 
 class SubscriptionsScreen extends StatefulWidget {
   const SubscriptionsScreen({
     required this.store,
     required this.feedFactory,
+    required this.retention,
     super.key,
   });
 
   final AppRepository store;
   final TopicFeedFactory feedFactory;
+  final RetentionSession retention;
 
   @override
   State<SubscriptionsScreen> createState() => _SubscriptionsScreenState();
@@ -130,6 +162,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
         builder: (_) => TopicFeedScreen(
           subscription: subscription,
           feed: feed,
+          retention: widget.retention,
           onUnsubscribe: () => widget.store.remove(subscription.id),
         ),
       ),
@@ -196,7 +229,8 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(
-                      builder: (_) => const SettingsScreen(),
+                      builder: (_) =>
+                          SettingsScreen(retention: widget.retention),
                     ),
                   );
                 },
@@ -415,14 +449,5 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
         ],
       ),
     );
-  }
-}
-
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(appBar: AppBar(title: const Text('Settings')));
   }
 }
