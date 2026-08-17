@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/publish.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -62,19 +63,24 @@ void main() {
       unawaited(controller.start());
       await _until(() => controller.state.status == FeedStatus.connected);
 
-      await _publish(
+      await HttpNtfyPublisher().publish(
         subscription.url,
-        'First body',
-        title: 'First title',
-        priority: 5,
-        tags: 'warning,server',
+        const PublishMessage(
+          message: 'First body',
+          title: 'First title',
+          priority: 5,
+          tags: ['warning', 'server'],
+        ),
       );
       await _until(() => controller.state.messages.length == 1);
       final firstCursor = controller.state.cursor;
       await controller.close();
       await store.close();
 
-      await _publish(subscription.url, 'Second body');
+      await HttpNtfyPublisher().publish(
+        subscription.url,
+        const PublishMessage(message: 'Second body'),
+      );
       store = await SubscriptionStore.open(
         factory: databaseFactoryFfi,
         path: databasePath,
@@ -122,28 +128,6 @@ Future<void> _waitForHealth(String baseUrl) async {
       return false;
     }
   });
-}
-
-Future<void> _publish(
-  String topicUrl,
-  String message, {
-  String? title,
-  int? priority,
-  String? tags,
-}) async {
-  final client = HttpClient();
-  try {
-    final request = await client.postUrl(Uri.parse(topicUrl));
-    if (title != null) request.headers.set('Title', title);
-    if (priority != null) request.headers.set('Priority', priority);
-    if (tags != null) request.headers.set('Tags', tags);
-    request.write(message);
-    final response = await request.close();
-    await response.drain<void>();
-    expect(response.statusCode, HttpStatus.ok);
-  } finally {
-    client.close(force: true);
-  }
 }
 
 Future<void> _until(FutureOr<bool> Function() condition) async {

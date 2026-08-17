@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'messages.dart';
+import 'publish.dart';
 import 'subscriptions.dart';
 
 enum FeedStatus { loading, connecting, connected, reconnecting, offline, error }
@@ -191,14 +192,18 @@ const _defaultRetryDelays = <Duration>[
 typedef TopicFeedFactory = TopicFeedSession Function(Subscription subscription);
 
 class TopicFeedSession {
-  const TopicFeedSession({required this.controller});
+  TopicFeedSession({required this.controller, NtfyPublisher? publisher})
+    : publisher = publisher ?? HttpNtfyPublisher();
 
   final TopicFeedController controller;
+  final NtfyPublisher publisher;
 
   FeedState get state => controller.state;
   Stream<FeedState> get states => controller.states;
 
   Future<void> start() => controller.start();
+  Future<void> publish(PublishMessage message) =>
+      publisher.publish(controller.subscription.url, message);
   Future<void> close() => controller.close();
 }
 

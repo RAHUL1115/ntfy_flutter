@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'messages.dart';
+import 'publish.dart';
 import 'subscriptions.dart';
 import 'topic_feed.dart';
 
@@ -27,6 +28,9 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
   final _messageKeys = <String, GlobalKey>{};
   var _initialScrollDone = false;
   var _showNewMessages = false;
+  final _quickMessage = TextEditingController();
+  String? _publishError;
+  var _publishing = false;
 
   @override
   void initState() {
@@ -97,10 +101,54 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
     if (_showNewMessages) setState(() => _showNewMessages = false);
   }
 
+  Future<void> _quickPublish() async {
+    final message = PublishMessage(message: _quickMessage.text);
+    final error = message.validationError;
+    if (error != null) {
+      setState(() => _publishError = error);
+      return;
+    }
+    setState(() {
+      _publishing = true;
+      _publishError = null;
+    });
+    try {
+      await widget.feed.publish(message);
+      if (!mounted) return;
+      _quickMessage.clear();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Message published.')));
+    } catch (error) {
+      if (mounted) setState(() => _publishError = error.toString());
+    } finally {
+      if (mounted) setState(() => _publishing = false);
+    }
+  }
+
+  Future<void> _openComposer() async {
+    final published = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => _PublishComposer(
+          subscription: widget.subscription,
+          feed: widget.feed,
+          initialMessage: _quickMessage.text,
+        ),
+      ),
+    );
+    if (published == true && mounted) {
+      _quickMessage.clear();
+      setState(() => _publishError = null);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Message published.')));
+    }
+  }
+
   @override
   void dispose() {
     _stateSubscription?.cancel();
     _scrollController.dispose();
+    _quickMessage.dispose();
     unawaited(widget.feed.close());
     super.dispose();
   }
@@ -134,6 +182,13 @@ class _TopicFeedScreenState extends State<TopicFeedScreen> {
       body: _state.messages.isEmpty && _state.status == FeedStatus.loading
           ? const Center(child: CircularProgressIndicator())
           : _buildMessages(),
+      bottomNavigationBar: _MessageBar(
+        controller: _quickMessage,
+        sending: _publishing,
+        error: _publishError,
+        onExpand: _openComposer,
+        onSend: _quickPublish,
+      ),
       floatingActionButton: _showNewMessages
           ? FloatingActionButton.extended(
               key: const Key('new-messages-action'),
@@ -277,6 +332,342 @@ class _MessageCard extends StatelessWidget {
               ],
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MessageBar extends StatelessWidget {
+  const _MessageBar({
+    required this.controller,
+    required this.sending,
+    required this.error,
+    required this.onExpand,
+    required this.onSend,
+  });
+
+  final TextEditingController controller;
+  final bool sending;
+  final String? error;
+  final VoidCallback onExpand;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Material(
+      elevation: 8,
+      color: theme.colorScheme.surfaceContainerHigh,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surface,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            key: const Key('expand-composer'),
+                            tooltip: 'Expand composer',
+                            onPressed: sending ? null : onExpand,
+                            icon: const Icon(Icons.keyboard_arrow_up),
+                          ),
+                          Expanded(
+                            child: Semantics(
+                              container: true,
+                              explicitChildNodes: true,
+                              label: 'Message',
+                              child: TextField(
+                                key: const Key('quick-message-field'),
+                                controller: controller,
+                                enabled: !sending,
+                                minLines: 1,
+                                maxLines: 4,
+                                decoration: const InputDecoration(
+                                  hintText: 'Type a message here',
+                                  border: InputBorder.none,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: FloatingActionButton.small(
+                      key: const Key('quick-send'),
+                      tooltip: 'Send message',
+                      onPressed: sending ? null : onSend,
+                      child: sending
+                          ? Semantics(
+                              liveRegion: true,
+                              label: 'Publishing message',
+                              child: SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              ),
+                            )
+                          : const Icon(Icons.send),
+                    ),
+                  ),
+                ],
+              ),
+              if (error != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 52, top: 2),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        error!,
+                        key: const Key('quick-publish-error'),
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PublishComposer extends StatefulWidget {
+  const _PublishComposer({
+    required this.subscription,
+    required this.feed,
+    required this.initialMessage,
+  });
+
+  final Subscription subscription;
+  final TopicFeedSession feed;
+  final String initialMessage;
+
+  @override
+  State<_PublishComposer> createState() => _PublishComposerState();
+}
+
+class _PublishComposerState extends State<_PublishComposer> {
+  late final _message = TextEditingController(text: widget.initialMessage);
+  final _title = TextEditingController();
+  final _tags = TextEditingController();
+  var _priority = 3;
+  var _showTitle = false;
+  var _showTags = false;
+  var _showPriority = false;
+  var _sending = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _message.dispose();
+    _title.dispose();
+    _tags.dispose();
+    super.dispose();
+  }
+
+  Future<void> _publish() async {
+    final message = PublishMessage(
+      message: _message.text,
+      title: _title.text,
+      priority: _priority,
+      tags: parsePublishTags(_tags.text),
+    );
+    final validationError = message.validationError;
+    if (validationError != null) {
+      setState(() => _error = validationError);
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    try {
+      await widget.feed.publish(message);
+      if (mounted) Navigator.pop(context, true);
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _sending = false;
+          _error = error.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final target =
+        widget.subscription.displayName ??
+        Uri.parse(widget.subscription.url).pathSegments.last;
+    return PopScope(
+      canPop: !_sending,
+      child: Scaffold(
+        appBar: AppBar(
+          backgroundColor: Theme.of(context).colorScheme.surface,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
+          leading: IconButton(
+            tooltip: 'Close composer',
+            onPressed: _sending ? null : () => Navigator.pop(context),
+            icon: const Icon(Icons.close),
+          ),
+          title: Text('Publish to $target'),
+          actions: [
+            TextButton(
+              key: const Key('publish-action'),
+              onPressed: _sending ? null : _publish,
+              child: _sending
+                  ? Semantics(
+                      liveRegion: true,
+                      label: 'Publishing message',
+                      child: SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : const Text('PUBLISH'),
+            ),
+          ],
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            if (_showTitle) ...[
+              TextField(
+                key: const Key('composer-title-field'),
+                controller: _title,
+                enabled: !_sending,
+                decoration: const InputDecoration(
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+            TextField(
+              key: const Key('composer-message-field'),
+              controller: _message,
+              enabled: !_sending,
+              autofocus: true,
+              minLines: 4,
+              maxLines: null,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Message',
+                hintText: 'Type a message here',
+                alignLabelWithHint: true,
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (_showTags) ...[
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('composer-tags-field'),
+                controller: _tags,
+                enabled: !_sending,
+                decoration: const InputDecoration(
+                  labelText: 'Tags',
+                  hintText: 'warning, skull',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+            if (_showPriority) ...[
+              const SizedBox(height: 16),
+              DropdownButtonFormField<int>(
+                key: const Key('composer-priority-field'),
+                initialValue: _priority,
+                decoration: const InputDecoration(
+                  labelText: 'Priority',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 5, child: Text('5 — Max')),
+                  DropdownMenuItem(value: 4, child: Text('4 — High')),
+                  DropdownMenuItem(value: 3, child: Text('3 — Default')),
+                  DropdownMenuItem(value: 2, child: Text('2 — Low')),
+                  DropdownMenuItem(value: 1, child: Text('1 — Min')),
+                ],
+                onChanged: _sending
+                    ? null
+                    : (value) => setState(() => _priority = value ?? 3),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                FilterChip(
+                  key: const Key('composer-title-chip'),
+                  label: const Text('Title'),
+                  selected: _showTitle,
+                  onSelected: _sending
+                      ? null
+                      : (selected) => setState(() {
+                          _showTitle = selected;
+                          if (!selected) _title.clear();
+                        }),
+                ),
+                FilterChip(
+                  key: const Key('composer-tags-chip'),
+                  label: const Text('Tags'),
+                  selected: _showTags,
+                  onSelected: _sending
+                      ? null
+                      : (selected) => setState(() {
+                          _showTags = selected;
+                          if (!selected) _tags.clear();
+                        }),
+                ),
+                FilterChip(
+                  key: const Key('composer-priority-chip'),
+                  label: const Text('Priority'),
+                  selected: _showPriority,
+                  onSelected: _sending
+                      ? null
+                      : (selected) => setState(() {
+                          _showPriority = selected;
+                          if (!selected) _priority = 3;
+                        }),
+                ),
+              ],
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  _error!,
+                  key: const Key('composer-publish-error'),
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            ],
+          ],
         ),
       ),
     );

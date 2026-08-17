@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
+import 'package:ntfy_flutter/publish.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 
@@ -167,6 +168,90 @@ void main() {
       expect(find.text('Newest body'), findsOneWidget);
     },
   );
+
+  testWidgets('composer validates and preserves a failed draft for retry', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 0);
+    final publisher = _FakePublisher()
+      ..error = 'Server unavailable. Try again.';
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: _WidgetClient(),
+          ),
+          publisher: publisher,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('quick-send')));
+    await tester.pump();
+    expect(find.text('Message is required.'), findsOneWidget);
+    expect(publisher.messages, isEmpty);
+
+    await tester.tap(find.byKey(const Key('expand-composer')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('composer-message-field')),
+      'Keep this draft',
+    );
+    await tester.tap(find.byKey(const Key('composer-title-chip')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('composer-title-field')),
+      'A title',
+    );
+    await tester.tap(find.byKey(const Key('composer-tags-chip')));
+    await tester.pump();
+    await tester.enterText(
+      find.byKey(const Key('composer-tags-field')),
+      'warning, server',
+    );
+    await tester.tap(find.byKey(const Key('composer-priority-chip')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('composer-priority-field')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('4 — High').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('publish-action')));
+    await tester.pump();
+
+    expect(find.text('Server unavailable. Try again.'), findsOneWidget);
+    expect(find.text('Keep this draft'), findsOneWidget);
+    expect(publisher.messages.single.title, 'A title');
+    expect(publisher.messages.single.tags, ['warning', 'server']);
+    expect(publisher.messages.single.priority, 4);
+
+    publisher.error = null;
+    await tester.tap(find.byKey(const Key('publish-action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Message published.'), findsOneWidget);
+    expect(publisher.messages, hasLength(2));
+    expect(publisher.messages.last.message, 'Keep this draft');
+    expect(publisher.messages.last.title, 'A title');
+    expect(publisher.messages.last.tags, ['warning', 'server']);
+    expect(publisher.messages.last.priority, 4);
+    expect(repository.messages, isEmpty);
+  });
+}
+
+class _FakePublisher implements NtfyPublisher {
+  final messages = <PublishMessage>[];
+  String? error;
+
+  @override
+  Future<void> publish(String topicUrl, PublishMessage message) async {
+    messages.add(message);
+    if (error != null) throw PublishException(error!);
+  }
 }
 
 class _ThrowingClient implements NtfyStreamClient {

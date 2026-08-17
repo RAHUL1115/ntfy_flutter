@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/publish.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -116,6 +117,93 @@ void main() {
         'c',
       ]);
       expect(snapshot.cursor, 'c');
+    },
+    timeout: const Timeout(Duration(seconds: 10)),
+  );
+
+  test(
+    'published message is inserted only when streamed and remains deduped',
+    () async {
+      final directory = await Directory.systemTemp.createTemp(
+        'ntfy_publish_acceptance',
+      );
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      final publishedBody = Completer<String>();
+      final streamReady = Completer<void>();
+      final serverDone = server.listen((request) async {
+        if (request.method == 'GET') {
+          request.response.headers.contentType = ContentType(
+            'application',
+            'x-ndjson',
+            charset: 'utf-8',
+          );
+          streamReady.complete();
+          final event = _event(
+            'published',
+            30,
+            await publishedBody.future,
+            title: 'Published title',
+            priority: 4,
+            tags: ['warning', 'server'],
+          );
+          request.response
+            ..writeln(event)
+            ..writeln(event);
+          await request.response.close();
+          return;
+        }
+        expect(request.method, 'PUT');
+        final body = await utf8.decoder.bind(request).join();
+        expect(body, 'Published body');
+        expect(request.uri.queryParameters, {
+          'priority': '4',
+          'title': 'Published title',
+          'tags': 'warning,server',
+        });
+        request.response.statusCode = HttpStatus.ok;
+        await request.response.close();
+        publishedBody.complete(body);
+      }).asFuture<void>();
+      addTearDown(() async {
+        await server.close(force: true);
+        await serverDone;
+        await directory.delete(recursive: true);
+      });
+
+      final store = await SubscriptionStore.open(
+        factory: databaseFactoryFfi,
+        path: '${directory.path}/ntfy.db',
+      );
+      final topicUrl = 'http://${server.address.host}:${server.port}/alerts';
+      final subscription = await store.add(url: topicUrl);
+      final controller = TopicFeedController(
+        repository: store,
+        subscription: subscription,
+        client: HttpNtfyStreamClient(),
+      );
+      unawaited(controller.start());
+      await streamReady.future;
+
+      await HttpNtfyPublisher().publish(
+        topicUrl,
+        const PublishMessage(
+          message: 'Published body',
+          title: 'Published title',
+          priority: 4,
+          tags: ['warning', 'server'],
+        ),
+      );
+      await _until(() => controller.state.messages.isNotEmpty);
+
+      expect(controller.state.messages, hasLength(1));
+      final published = controller.state.messages.single;
+      expect(published.message, 'Published body');
+      expect(published.title, 'Published title');
+      expect(published.priority, 4);
+      expect(published.tags, ['warning', 'server']);
+      expect((await store.loadFeed(subscription.id)).messages, hasLength(1));
+      await controller.close();
+      await store.close();
     },
     timeout: const Timeout(Duration(seconds: 10)),
   );

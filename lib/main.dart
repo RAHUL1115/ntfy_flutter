@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'publish.dart';
 import 'subscriptions.dart';
 import 'topic_feed.dart';
 import 'topic_feed_screen.dart';
@@ -53,16 +54,21 @@ Future<void> main() async {
 }
 
 class NtfyApp extends StatelessWidget {
-  NtfyApp({required this.store, TopicFeedFactory? feedFactory, super.key})
-    : feedFactory =
-          feedFactory ??
-          ((subscription) => TopicFeedSession(
-            controller: TopicFeedController(
-              repository: store,
-              subscription: subscription,
-              client: HttpNtfyStreamClient(),
-            ),
-          ));
+  NtfyApp({
+    required this.store,
+    TopicFeedFactory? feedFactory,
+    NtfyPublisher? publisher,
+    super.key,
+  }) : feedFactory =
+           feedFactory ??
+           ((subscription) => TopicFeedSession(
+             controller: TopicFeedController(
+               repository: store,
+               subscription: subscription,
+               client: HttpNtfyStreamClient(),
+             ),
+             publisher: publisher,
+           ));
 
   final AppRepository store;
   final TopicFeedFactory feedFactory;
