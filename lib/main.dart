@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'subscriptions.dart';
+import 'topic_feed.dart';
+import 'topic_feed_screen.dart';
 
 final _darkTheme = ThemeData(
   useMaterial3: true,
@@ -51,9 +53,19 @@ Future<void> main() async {
 }
 
 class NtfyApp extends StatelessWidget {
-  const NtfyApp({required this.store, super.key});
+  NtfyApp({required this.store, TopicFeedFactory? feedFactory, super.key})
+    : feedFactory =
+          feedFactory ??
+          ((subscription) => TopicFeedSession(
+            controller: TopicFeedController(
+              repository: store,
+              subscription: subscription,
+              client: HttpNtfyStreamClient(),
+            ),
+          ));
 
-  final SubscriptionRepository store;
+  final AppRepository store;
+  final TopicFeedFactory feedFactory;
 
   @override
   Widget build(BuildContext context) {
@@ -63,15 +75,20 @@ class NtfyApp extends StatelessWidget {
       theme: _lightTheme,
       darkTheme: _darkTheme,
       themeMode: ThemeMode.system,
-      home: SubscriptionsScreen(store: store),
+      home: SubscriptionsScreen(store: store, feedFactory: feedFactory),
     );
   }
 }
 
 class SubscriptionsScreen extends StatefulWidget {
-  const SubscriptionsScreen({required this.store, super.key});
+  const SubscriptionsScreen({
+    required this.store,
+    required this.feedFactory,
+    super.key,
+  });
 
-  final SubscriptionRepository store;
+  final AppRepository store;
+  final TopicFeedFactory feedFactory;
 
   @override
   State<SubscriptionsScreen> createState() => _SubscriptionsScreenState();
@@ -152,6 +169,14 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen> {
             subtitle: subscription.displayName == null
                 ? null
                 : Text(subscription.url),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => TopicFeedScreen(
+                  subscription: subscription,
+                  feed: widget.feedFactory(subscription),
+                ),
+              ),
+            ),
           );
         },
       );

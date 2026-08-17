@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
+
+import 'messages.dart';
 
 class Subscription {
   const Subscription({required this.id, required this.url, this.displayName});
@@ -33,7 +37,10 @@ abstract interface class SubscriptionRepository {
   Future<List<Subscription>> all();
 }
 
-class SubscriptionStore implements SubscriptionRepository {
+abstract interface class AppRepository
+    implements SubscriptionRepository, MessageRepository {}
+
+class SubscriptionStore implements AppRepository {
   SubscriptionStore._(this._database);
 
   final Database _database;
@@ -48,14 +55,27 @@ class SubscriptionStore implements SubscriptionRepository {
     final database = await selectedFactory.openDatabase(
       selectedPath,
       options: OpenDatabaseOptions(
-        version: 1,
-        onCreate: (database, _) => database.execute('''
-          CREATE TABLE subscriptions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            url TEXT NOT NULL UNIQUE,
-            display_name TEXT
-          )
-        '''),
+        version: 2,
+        onConfigure: (database) => database.execute('PRAGMA foreign_keys = ON'),
+        onCreate: (database, _) async {
+          await database.execute('''
+            CREATE TABLE subscriptions (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              url TEXT NOT NULL UNIQUE,
+              display_name TEXT,
+              last_message_id TEXT
+            )
+          ''');
+          await _createMessagesSchema(database);
+        },
+        onUpgrade: (database, oldVersion, _) async {
+          if (oldVersion < 2) {
+            await database.execute(
+              'ALTER TABLE subscriptions ADD COLUMN last_message_id TEXT',
+            );
+            await _createMessagesSchema(database);
+          }
+        },
       ),
     );
     return SubscriptionStore._(database);
@@ -98,6 +118,63 @@ class SubscriptionStore implements SubscriptionRepository {
         )
         .toList();
   }
+
+  @override
+  Future<FeedSnapshot> loadFeed(int subscriptionId) =>
+      _database.transaction((transaction) async {
+        final subscriptionRows = await transaction.query(
+          'subscriptions',
+          columns: ['last_message_id'],
+          where: 'id = ?',
+          whereArgs: [subscriptionId],
+          limit: 1,
+        );
+        if (subscriptionRows.isEmpty) {
+          throw StateError('Subscription $subscriptionId does not exist.');
+        }
+        final rows = await transaction.query(
+          'messages',
+          where: 'subscription_id = ?',
+          whereArgs: [subscriptionId],
+          orderBy: 'event_time ASC, local_id ASC',
+        );
+        return FeedSnapshot(
+          cursor: subscriptionRows.single['last_message_id'] as String?,
+          messages: rows.map(_storedMessageFromRow).toList(),
+        );
+      });
+
+  @override
+  Future<StoredMessage?> ingest(int subscriptionId, IncomingMessage message) =>
+      _database.transaction((transaction) async {
+        final localId = await transaction.insert('messages', {
+          'subscription_id': subscriptionId,
+          'event_id': message.eventId,
+          'event_time': message.time.toUtc().millisecondsSinceEpoch,
+          'message': message.message,
+          'title': message.title,
+          'priority': message.priority,
+          'tags': jsonEncode(message.tags),
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        if (localId == 0) return null;
+
+        await transaction.update(
+          'subscriptions',
+          {'last_message_id': message.eventId},
+          where: 'id = ?',
+          whereArgs: [subscriptionId],
+        );
+        return StoredMessage(
+          localId: localId,
+          subscriptionId: subscriptionId,
+          eventId: message.eventId,
+          time: message.time.toUtc(),
+          message: message.message,
+          title: message.title,
+          priority: message.priority,
+          tags: List.unmodifiable(message.tags),
+        );
+      });
 
   Future<void> close() => _database.close();
 
@@ -147,3 +224,40 @@ class SubscriptionStore implements SubscriptionRepository {
     ).toString();
   }
 }
+
+Future<void> _createMessagesSchema(DatabaseExecutor database) async {
+  await database.execute('''
+    CREATE TABLE messages (
+      local_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      subscription_id INTEGER NOT NULL,
+      event_id TEXT NOT NULL,
+      event_time INTEGER NOT NULL,
+      message TEXT NOT NULL,
+      title TEXT,
+      priority INTEGER NOT NULL,
+      tags TEXT NOT NULL,
+      UNIQUE(subscription_id, event_id),
+      FOREIGN KEY(subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+    )
+  ''');
+  await database.execute('''
+    CREATE INDEX messages_subscription_time
+    ON messages(subscription_id, event_time, local_id)
+  ''');
+}
+
+StoredMessage _storedMessageFromRow(Map<String, Object?> row) => StoredMessage(
+  localId: row['local_id']! as int,
+  subscriptionId: row['subscription_id']! as int,
+  eventId: row['event_id']! as String,
+  time: DateTime.fromMillisecondsSinceEpoch(
+    row['event_time']! as int,
+    isUtc: true,
+  ),
+  message: row['message']! as String,
+  title: row['title'] as String?,
+  priority: row['priority']! as int,
+  tags: List.unmodifiable(
+    (jsonDecode(row['tags']! as String) as List).cast<String>(),
+  ),
+);

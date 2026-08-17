@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/main.dart';
+import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 
 void main() {
@@ -183,7 +184,7 @@ void main() {
   });
 }
 
-class _DelayedSubscriptionRepository implements SubscriptionRepository {
+class _DelayedSubscriptionRepository implements AppRepository {
   final _pending = Completer<Subscription>();
   var _subscriptions = <Subscription>[];
 
@@ -202,9 +203,19 @@ class _DelayedSubscriptionRepository implements SubscriptionRepository {
 
   @override
   Future<List<Subscription>> all() async => _subscriptions;
+
+  @override
+  Future<FeedSnapshot> loadFeed(int subscriptionId) async =>
+      FeedSnapshot(messages: []);
+
+  @override
+  Future<StoredMessage?> ingest(
+    int subscriptionId,
+    IncomingMessage message,
+  ) async => null;
 }
 
-class _MemorySubscriptionRepository implements SubscriptionRepository {
+class _MemorySubscriptionRepository implements AppRepository {
   final _subscriptions = <Subscription>[];
 
   @override
@@ -227,4 +238,14 @@ class _MemorySubscriptionRepository implements SubscriptionRepository {
 
   @override
   Future<List<Subscription>> all() async => List.unmodifiable(_subscriptions);
+
+  @override
+  Future<FeedSnapshot> loadFeed(int subscriptionId) async =>
+      FeedSnapshot(messages: []);
+
+  @override
+  Future<StoredMessage?> ingest(
+    int subscriptionId,
+    IncomingMessage message,
+  ) async => null;
 }
