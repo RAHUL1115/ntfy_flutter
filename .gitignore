@@ -3,15 +3,7 @@
 *.log
 *.pyc
 *.swp
-*.tmp
-*.orig
-*.rej
 .DS_Store
-
-# Local environment and secrets
-.env
-.env.*
-!.env.example
 .atom/
 .build/
 .buildlog/
@@ -26,8 +18,10 @@ migrate_working_dir/
 *.iws
 .idea/
 
-# Editor settings
-.vscode/
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
 
 # Flutter/Dart/Pub related
 **/doc/api/
