@@ -384,6 +384,56 @@ class DesignDeleteBackground extends StatelessWidget {
   );
 }
 
+class DesignSwipeToDelete extends StatefulWidget {
+  const DesignSwipeToDelete({
+    required this.dismissKey,
+    required this.confirmDismiss,
+    required this.onDismissed,
+    required this.child,
+    this.backgroundMargin = EdgeInsets.zero,
+    super.key,
+  });
+
+  final Key dismissKey;
+  final Future<bool> Function() confirmDismiss;
+  final VoidCallback onDismissed;
+  final Widget child;
+  final EdgeInsetsGeometry backgroundMargin;
+
+  @override
+  State<DesignSwipeToDelete> createState() => _DesignSwipeToDeleteState();
+}
+
+class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete> {
+  static const _threshold = 0.7;
+  var _pointerDown = false;
+  var _dragProgress = 0.0;
+
+  @override
+  Widget build(BuildContext context) => Listener(
+    onPointerDown: (_) {
+      _pointerDown = true;
+      _dragProgress = 0;
+    },
+    onPointerUp: (_) => _pointerDown = false,
+    onPointerCancel: (_) => _pointerDown = false,
+    child: Dismissible(
+      key: widget.dismissKey,
+      direction: DismissDirection.endToStart,
+      dismissThresholds: const {DismissDirection.endToStart: _threshold},
+      onUpdate: (details) {
+        if (_pointerDown) _dragProgress = details.progress;
+      },
+      confirmDismiss: (_) => _dragProgress >= _threshold
+          ? widget.confirmDismiss()
+          : Future.value(false),
+      onDismissed: (_) => widget.onDismissed(),
+      background: DesignDeleteBackground(margin: widget.backgroundMargin),
+      child: widget.child,
+    ),
+  );
+}
+
 /// Large centered header that settles into the compact toolbar shown in the
 /// updated mobile design.
 class DesignHeader extends StatelessWidget {
@@ -393,6 +443,7 @@ class DesignHeader extends StatelessWidget {
     required this.title,
     required this.actions,
     this.leading,
+    this.onCollapsedTitleTap,
     this.expandedTitleSize = 28,
     this.collapsedTitleSize = 22,
     this.border = true,
@@ -403,6 +454,7 @@ class DesignHeader extends StatelessWidget {
   final Duration duration;
   final Widget title;
   final Widget? leading;
+  final VoidCallback? onCollapsedTitleTap;
   final List<Widget> actions;
   final double expandedTitleSize;
   final double collapsedTitleSize;
@@ -460,7 +512,9 @@ class DesignHeader extends StatelessWidget {
                   Alignment.center,
                   progress,
                 )!,
-                child: title,
+                child: onCollapsedTitleTap != null && progress == 0
+                    ? InkWell(onTap: onCollapsedTitleTap, child: title)
+                    : title,
               ),
             ),
           ),
@@ -486,6 +540,8 @@ class CollapsibleDesignBody extends StatefulWidget {
     this.actions = const [],
     this.automaticallyImplyLeading = true,
     this.forceCollapsed = false,
+    this.onCollapsedTitleTap,
+    this.scrollController,
     this.expandedTitleSize = 28,
     this.collapsedTitleSize = 22,
     super.key,
@@ -497,6 +553,8 @@ class CollapsibleDesignBody extends StatefulWidget {
   final List<Widget> actions;
   final bool automaticallyImplyLeading;
   final bool forceCollapsed;
+  final VoidCallback? onCollapsedTitleTap;
+  final ScrollController? scrollController;
   final double expandedTitleSize;
   final double collapsedTitleSize;
 
@@ -505,12 +563,18 @@ class CollapsibleDesignBody extends StatefulWidget {
 }
 
 class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
+  late final ScrollController _fallbackScrollController;
   late double _headerExtent;
   var _dragging = false;
+  var _headerDragging = false;
+
+  ScrollController get _scrollController =>
+      widget.scrollController ?? _fallbackScrollController;
 
   @override
   void initState() {
     super.initState();
+    _fallbackScrollController = ScrollController();
     _headerExtent = _designHeadersExpanded.value
         ? designHeaderExpandedHeight
         : designHeaderCollapsedHeight;
@@ -520,6 +584,7 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
   @override
   void dispose() {
     _designHeadersExpanded.removeListener(_syncSettledState);
+    _fallbackScrollController.dispose();
     super.dispose();
   }
 
@@ -560,8 +625,61 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
     }
   }
 
+  void _onHeaderDragStart(DragStartDetails details) {
+    setState(() {
+      _dragging = true;
+      _headerDragging = true;
+    });
+  }
+
+  void _onHeaderDragUpdate(DragUpdateDetails details) {
+    var delta = details.primaryDelta ?? 0;
+    final controller = _scrollController;
+    if (delta < 0) {
+      final collapse = (-delta).clamp(
+        0,
+        _headerExtent - designHeaderCollapsedHeight,
+      );
+      _setExtent(_headerExtent - collapse);
+      delta += collapse;
+      if (delta < 0 && controller.hasClients) {
+        controller.jumpTo(
+          (controller.offset - delta).clamp(
+            controller.position.minScrollExtent,
+            controller.position.maxScrollExtent,
+          ),
+        );
+      }
+      return;
+    }
+    if (delta > 0 && controller.hasClients && controller.offset > 0) {
+      final scroll = delta.clamp(0, controller.offset);
+      controller.jumpTo(controller.offset - scroll);
+      delta -= scroll;
+    }
+    if (delta > 0) _setExtent(_headerExtent + delta);
+  }
+
+  void _onHeaderDragEnd(DragEndDetails details) {
+    _headerDragging = false;
+    _snap();
+    final velocity = -(details.primaryVelocity ?? 0);
+    if (_headerExtent == designHeaderCollapsedHeight &&
+        velocity > 0 &&
+        _scrollController.hasClients &&
+        _scrollController.position is ScrollPositionWithSingleContext) {
+      (_scrollController.position as ScrollPositionWithSingleContext)
+          .goBallistic(velocity);
+    }
+  }
+
+  void _onHeaderDragCancel() {
+    _headerDragging = false;
+    _snap();
+  }
+
   bool _onScroll(ScrollNotification notification) {
-    if (notification.metrics.axis != Axis.vertical) {
+    if (_headerDragging || notification.metrics.axis != Axis.vertical) {
       return false;
     }
     switch (notification) {
@@ -602,21 +720,32 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
       bottom: false,
       child: Column(
         children: [
-          DesignHeader(
-            progress: widget.forceCollapsed ? 0 : _progress,
-            duration: _dragging ? Duration.zero : designMotionDuration,
-            title: widget.title,
-            leading: leading,
-            actions: widget.actions,
-            expandedTitleSize: widget.expandedTitleSize,
-            collapsedTitleSize: widget.collapsedTitleSize,
+          GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onVerticalDragStart: _onHeaderDragStart,
+            onVerticalDragUpdate: _onHeaderDragUpdate,
+            onVerticalDragEnd: _onHeaderDragEnd,
+            onVerticalDragCancel: _onHeaderDragCancel,
+            child: DesignHeader(
+              progress: widget.forceCollapsed ? 0 : _progress,
+              duration: _dragging ? Duration.zero : designMotionDuration,
+              title: widget.title,
+              leading: leading,
+              onCollapsedTitleTap: widget.onCollapsedTitleTap,
+              actions: widget.actions,
+              expandedTitleSize: widget.expandedTitleSize,
+              collapsedTitleSize: widget.collapsedTitleSize,
+            ),
           ),
           Expanded(
             child: NotificationListener<ScrollNotification>(
               onNotification: _onScroll,
               child: ScrollConfiguration(
                 behavior: const _DesignScrollBehavior(),
-                child: widget.child,
+                child: PrimaryScrollController(
+                  controller: _scrollController,
+                  child: widget.child,
+                ),
               ),
             ),
           ),

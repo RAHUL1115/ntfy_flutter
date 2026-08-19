@@ -531,6 +531,29 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     }
   }
 
+  Future<bool> _confirmDeleteMessage() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const LText('Delete notification?'),
+          content: const LText('Delete this notification from this device?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const LText('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const LText('Delete'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
   Future<void> _openAttachment(StoredMessage message) async {
     final attachment = message.attachment;
     if (attachment == null) return;
@@ -733,7 +756,11 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
       },
       child: Scaffold(
         body: CollapsibleDesignBody(
+          scrollController: _scrollController,
           forceCollapsed: _searching,
+          onCollapsedTitleTap: _searching
+              ? null
+              : () => unawaited(_openSettings()),
           expandedTitleSize: 20,
           collapsedTitleSize: _searching ? 18 : 20,
           leading: IconButton(
@@ -1014,14 +1041,11 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
       itemCount: messages.length,
       itemBuilder: (_, index) {
         final message = messages[index];
-        return Dismissible(
-          key: ValueKey('dismiss-message-${message.localId}'),
-          direction: DismissDirection.endToStart,
-          dismissThresholds: const {DismissDirection.endToStart: 0.7},
-          onDismissed: (_) => _deleteMessage(message),
-          background: const DesignDeleteBackground(
-            margin: EdgeInsets.symmetric(vertical: 6),
-          ),
+        return DesignSwipeToDelete(
+          dismissKey: ValueKey('dismiss-message-${message.localId}'),
+          confirmDismiss: _confirmDeleteMessage,
+          onDismissed: () => _deleteMessage(message),
+          backgroundMargin: const EdgeInsets.symmetric(vertical: 6),
           child: _MessageCard(
             key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),
             message: message,

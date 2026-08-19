@@ -546,17 +546,24 @@ void main() {
     await tester.tap(find.text('Production alerts'));
     await tester.pumpAndSettle();
 
-    await tester.drag(
+    await tester.fling(
       find.byKey(const ValueKey('message-id-1')),
       const Offset(-300, 0),
+      3000,
     );
     await tester.pumpAndSettle();
     expect(find.text('Body 1'), findsOneWidget);
+    expect(find.text('Delete notification?'), findsNothing);
 
     await tester.drag(
       find.byKey(const ValueKey('message-id-1')),
       const Offset(-700, 0),
     );
+    await tester.pumpAndSettle();
+    expect(find.text('Delete notification?'), findsOneWidget);
+    expect(repository.messages, hasLength(3));
+
+    await tester.tap(find.widgetWithText(TextButton, 'Delete'));
     await tester.pumpAndSettle();
 
     expect(find.text('Body 1'), findsNothing);
@@ -723,9 +730,12 @@ void main() {
     await tester.tap(find.text('Production alerts'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Show menu'));
+    await tester.drag(
+      find.byKey(const ValueKey('message-id-0')),
+      const Offset(0, -300),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Subscription settings'));
+    await tester.tap(find.text('Production alerts'));
     await tester.pumpAndSettle();
 
     expect(find.text('NOTIFICATIONS'), findsOneWidget);

@@ -64,6 +64,47 @@ void main() {
     expect(tester.getSize(find.byType(DesignHeader)).height, 268);
   });
 
+  testWidgets('expanded header follows a drag started on the title', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: Scaffold(
+          body: CollapsibleDesignBody(
+            title: const Text('Page title'),
+            scrollController: scrollController,
+            child: ListView.builder(
+              controller: scrollController,
+              itemCount: 50,
+              itemBuilder: (_, index) => ListTile(title: Text('Row $index')),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Page title')),
+    );
+    await gesture.moveBy(const Offset(0, -20));
+    await gesture.moveBy(const Offset(0, -100));
+    await tester.pump();
+    expect(
+      tester.getSize(find.byType(DesignHeader)).height,
+      inExclusiveRange(72, 268),
+    );
+    await gesture.moveBy(const Offset(0, -250));
+    await tester.pump();
+    expect(scrollController.offset, greaterThan(0));
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(designMotionDuration);
+    expect(tester.getSize(find.byType(DesignHeader)).height, 72);
+  });
+
   testWidgets('settled header state is shared between pages', (tester) async {
     Widget page(String title) => Scaffold(
       body: CollapsibleDesignBody(
@@ -207,6 +248,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Production'), findsOneWidget);
+    final displayName = tester.widget<Text>(find.text('Production'));
+    expect(displayName.style?.fontSize, 16);
+    expect(displayName.style?.fontWeight, FontWeight.w700);
     expect(find.text('No notifications yet'), findsOneWidget);
     expect(find.textContaining('https://ntfy.sh/alerts'), findsNothing);
     expect(
@@ -381,13 +425,25 @@ void main() {
     await tester.pumpWidget(NtfyApp(store: store));
     await tester.pumpAndSettle();
 
-    await tester.drag(find.text('Production'), const Offset(-300, 0));
+    await tester.fling(find.text('Production'), const Offset(-300, 0), 3000);
     await tester.pumpAndSettle();
     expect(find.text('Production'), findsOneWidget);
     expect((await store.all()).single.displayName, 'Production');
     expect(find.text('Unsubscribe from topic?'), findsNothing);
 
     await tester.drag(find.text('Production'), const Offset(-700, 0));
+    await tester.pumpAndSettle();
+    expect(find.text('Unsubscribe from topic?'), findsOneWidget);
+    expect((await store.all()).single.displayName, 'Production');
+
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Production'), findsOneWidget);
+    expect((await store.all()).single.displayName, 'Production');
+
+    await tester.drag(find.text('Production'), const Offset(-700, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(TextButton, 'Unsubscribe'));
     await tester.pumpAndSettle();
 
     expect(await store.all(), isEmpty);

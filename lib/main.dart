@@ -555,6 +555,33 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     super.dispose();
   }
 
+  Future<bool> _confirmRemove(Subscription subscription) async {
+    final name = subscription.displayName ?? subscription.url;
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const LText('Unsubscribe from topic?'),
+            content: LText(
+              'Unsubscribe from $name and delete all locally stored notifications?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const LText('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                style: TextButton.styleFrom(
+                  foregroundColor: Theme.of(context).colorScheme.error,
+                ),
+                child: const LText('Unsubscribe'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
   Future<void> _removeSubscription(Subscription subscription) async {
     setState(() {
       _subscriptions = _subscriptions
@@ -835,12 +862,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
             separatorBuilder: (_, _) => const SizedBox.shrink(),
             itemBuilder: (context, index) {
               final subscription = subscriptions[index];
-              return Dismissible(
-                key: ValueKey('subscription-${subscription.id}'),
-                direction: DismissDirection.endToStart,
-                dismissThresholds: const {DismissDirection.endToStart: 0.7},
-                onDismissed: (_) => _removeSubscription(subscription),
-                background: const DesignDeleteBackground(),
+              return DesignSwipeToDelete(
+                dismissKey: ValueKey('subscription-${subscription.id}'),
+                confirmDismiss: () => _confirmRemove(subscription),
+                onDismissed: () => _removeSubscription(subscription),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     border: Border(
@@ -890,7 +915,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
                                           .textTheme
                                           .titleMedium
                                           ?.copyWith(
-                                            fontSize: 18,
+                                            fontSize: 16,
                                             fontWeight: FontWeight.w700,
                                           ),
                                     ),
