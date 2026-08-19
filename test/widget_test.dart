@@ -108,7 +108,7 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
     expect(
       tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'SUBSCRIBE'))
+          .widget<FilledButton>(find.widgetWithText(FilledButton, 'Subscribe'))
           .onPressed,
       isNull,
     );
@@ -127,7 +127,7 @@ void main() {
       find.byKey(const Key('display-name-field')),
       '  Production  ',
     );
-    await tester.tap(find.widgetWithText(TextButton, 'SUBSCRIBE'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Subscribe'));
     await tester.pumpAndSettle();
 
     expect(find.text('Production'), findsOneWidget);
@@ -340,7 +340,7 @@ void main() {
       'https://ntfy.sh/delayed',
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(TextButton, 'SUBSCRIBE'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Subscribe'));
     await tester.pump();
     await tester.binding.handlePopRoute();
     await tester.pump();
@@ -362,7 +362,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     final urlField = find.byKey(const Key('topic-url-field'));
-    final subscribeButton = find.widgetWithText(TextButton, 'SUBSCRIBE');
+    final subscribeButton = find.widgetWithText(FilledButton, 'Subscribe');
 
     await tester.enterText(urlField, 'https://ntfy.sh');
     await tester.pump();
@@ -394,16 +394,17 @@ void main() {
     );
   });
 
-  testWidgets('uses the source app light colors', (tester) async {
+  testWidgets('uses the design system light colors', (tester) async {
     await tester.pumpWidget(NtfyApp(store: store));
 
     final theme = Theme.of(tester.element(find.byType(Scaffold)));
 
-    expect(theme.appBarTheme.backgroundColor, const Color(0xffffffff));
-    expect(theme.scaffoldBackgroundColor, const Color(0xffffffff));
+    expect(theme.appBarTheme.backgroundColor, const Color(0xfff8fafa));
+    expect(theme.scaffoldBackgroundColor, const Color(0xfff8fafa));
+    expect(theme.colorScheme.primary, const Color(0xff004f45));
   });
 
-  testWidgets('uses the source app dark colors', (tester) async {
+  testWidgets('uses the design system dark colors', (tester) async {
     tester.platformDispatcher.platformBrightnessTestValue = Brightness.dark;
     addTearDown(tester.platformDispatcher.clearPlatformBrightnessTestValue);
 
@@ -411,8 +412,8 @@ void main() {
     final theme = Theme.of(tester.element(find.byType(Scaffold)));
 
     expect(theme.brightness, Brightness.dark);
-    expect(theme.appBarTheme.backgroundColor, const Color(0xff1b2023));
-    expect(theme.scaffoldBackgroundColor, const Color(0xff121212));
+    expect(theme.appBarTheme.backgroundColor, const Color(0xff0f1413));
+    expect(theme.scaffoldBackgroundColor, const Color(0xff0f1413));
   });
 
   testWidgets('labels primary controls and meets Android tap targets', (
@@ -443,7 +444,7 @@ void main() {
 
     expect(find.text('Settings'), findsOneWidget);
     expect(find.byTooltip('Back'), findsOneWidget);
-    expect(find.text('Notifications'), findsOneWidget);
+    expect(find.text('NOTIFICATIONS'), findsOneWidget);
     expect(find.text('Delete notifications'), findsOneWidget);
     expect(find.text('Never auto-delete notifications'), findsOneWidget);
 
@@ -500,6 +501,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(store.backgroundListening, isFalse);
     expect(host.stops, 1);
+  });
+
+  testWidgets('settings persists new messages at bottom', (tester) async {
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Settings'));
+    await tester.pumpAndSettle();
+    final setting = find.byKey(const Key('new-messages-at-bottom-setting'));
+    await tester.ensureVisible(setting);
+    await tester.pumpAndSettle();
+    await tester.tap(setting);
+    await tester.pumpAndSettle();
+
+    expect((await settings.loadSettings()).newMessagesAtBottom, isTrue);
   });
 
   testWidgets('notification taps deduplicate only while the route is open', (
@@ -566,8 +588,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('topic-url-field')), 'alerts');
     await tester.pump();
-    final subscribe = find.widgetWithText(TextButton, 'SUBSCRIBE');
-    expect(tester.widget<TextButton>(subscribe).onPressed, isNotNull);
+    final subscribe = find.widgetWithText(FilledButton, 'Subscribe');
+    expect(tester.widget<FilledButton>(subscribe).onPressed, isNotNull);
     await tester.tap(subscribe);
     await tester.pumpAndSettle();
 
@@ -588,7 +610,7 @@ void main() {
       'ntfy.sh/topic1',
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(TextButton, 'SUBSCRIBE'));
+    await tester.tap(find.widgetWithText(FilledButton, 'Subscribe'));
     await tester.pumpAndSettle();
 
     expect(await store.all(), hasLength(1));
@@ -650,6 +672,14 @@ void main() {
   testWidgets('home has stable light, dark, and large-text goldens', (
     tester,
   ) async {
+    await (FontLoader('Inter')
+          ..addFont(rootBundle.load('assets/fonts/Inter-Regular.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/Inter-SemiBold.ttf')))
+        .load();
+    await (FontLoader('HankenGrotesk')
+          ..addFont(rootBundle.load('assets/fonts/HankenGrotesk-SemiBold.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/HankenGrotesk-Bold.ttf')))
+        .load();
     await store.add(url: 'https://ntfy.sh/rahul', displayName: 'Rahul');
     final routeObserver = RouteObserver<PageRoute<dynamic>>();
 

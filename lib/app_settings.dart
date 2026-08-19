@@ -53,8 +53,9 @@ class AppSettings {
     this.defaultServer = 'https://ntfy.sh',
     this.languageTag = 'system',
     this.theme = AppThemePreference.system,
-    this.dynamicColors = true,
+    this.dynamicColors = false,
     this.messageBar = MessageBarPreference.enabled,
+    this.newMessagesAtBottom = false,
     this.connectionAlertSeconds = 0,
     this.protocol = ConnectionProtocol.http,
     this.broadcastsEnabled = true,
@@ -68,6 +69,7 @@ class AppSettings {
   final AppThemePreference theme;
   final bool dynamicColors;
   final MessageBarPreference messageBar;
+  final bool newMessagesAtBottom;
   final int connectionAlertSeconds;
   final ConnectionProtocol protocol;
   final bool broadcastsEnabled;
@@ -81,6 +83,7 @@ class AppSettings {
     AppThemePreference? theme,
     bool? dynamicColors,
     MessageBarPreference? messageBar,
+    bool? newMessagesAtBottom,
     int? connectionAlertSeconds,
     ConnectionProtocol? protocol,
     bool? broadcastsEnabled,
@@ -93,6 +96,7 @@ class AppSettings {
     theme: theme ?? this.theme,
     dynamicColors: dynamicColors ?? this.dynamicColors,
     messageBar: messageBar ?? this.messageBar,
+    newMessagesAtBottom: newMessagesAtBottom ?? this.newMessagesAtBottom,
     connectionAlertSeconds:
         connectionAlertSeconds ?? this.connectionAlertSeconds,
     protocol: protocol ?? this.protocol,
@@ -108,6 +112,7 @@ class AppSettings {
     'theme': theme.name,
     'dynamicColors': dynamicColors,
     'messageBar': messageBar.name,
+    'newMessagesAtBottom': newMessagesAtBottom,
     'connectionAlertSeconds': connectionAlertSeconds,
     'protocol': protocol.name,
     'broadcastsEnabled': broadcastsEnabled,
@@ -137,12 +142,13 @@ class AppSettings {
         'theme',
         AppThemePreference.system,
       ),
-      dynamicColors: value['dynamicColors'] as bool? ?? true,
+      dynamicColors: value['dynamicColors'] as bool? ?? false,
       messageBar: enumValue(
         MessageBarPreference.values,
         'messageBar',
         MessageBarPreference.enabled,
       ),
+      newMessagesAtBottom: value['newMessagesAtBottom'] as bool? ?? false,
       connectionAlertSeconds: value['connectionAlertSeconds'] as int? ?? 0,
       protocol: enumValue(
         ConnectionProtocol.values,

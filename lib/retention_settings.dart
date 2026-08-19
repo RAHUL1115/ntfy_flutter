@@ -10,6 +10,7 @@ import 'package:share_plus/share_plus.dart';
 import 'app_settings.dart';
 import 'attachments.dart';
 import 'background_listening.dart';
+import 'design.dart';
 import 'l10n.dart';
 import 'notification_policy.dart';
 import 'notifications.dart';
@@ -40,10 +41,22 @@ class SettingsScreen extends StatelessWidget {
     body: ListView(
       children: [
         if (policies != null)
-          _NotificationPolicySettings(policies: policies!, retention: retention)
-        else
-          _RetentionSettings(retention: retention),
-        _BackgroundListeningSettings(session: backgroundListening),
+          _NotificationPolicySettings(
+            policies: policies!,
+            retention: retention,
+            trailingRows: [
+              _BackgroundListeningSettings(session: backgroundListening),
+            ],
+          )
+        else ...[
+          const _SectionHeader('Notifications'),
+          _SettingsPanel(
+            children: [
+              _RetentionSettings(retention: retention),
+              _BackgroundListeningSettings(session: backgroundListening),
+            ],
+          ),
+        ],
         if (settings != null)
           _AppSettingsPanel(
             repository: settings!,
@@ -149,56 +162,69 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
         title: LText(
           _subscription.displayName ??
               Uri.parse(_subscription.url).pathSegments.last,
+          style: Theme.of(context).textTheme.titleLarge
+              ?.copyWith(fontSize: 22, fontWeight: FontWeight.w600),
         ),
       ),
       body: ListView(
         children: [
-          if (widget.policies != null) ...[
-            const _SectionHeader('Notifications'),
-            if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+          const _SectionHeader('Notifications'),
+          if (widget.policies != null)
             _NotificationPolicySettings(
               policies: widget.policies!,
               subscriptionId: _subscription.id,
               retention: widget.retention,
               showHeader: false,
               showAppearanceHeader: true,
+              leadingRows: [
+                if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+              ],
+            )
+          else
+            _SettingsPanel(
+              children: [
+                if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+                _RetentionSettings(
+                  retention: widget.retention,
+                  subscriptionId: _subscription.id,
+                ),
+              ],
             ),
-          ] else ...[
-            if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
-            _RetentionSettings(
-              retention: widget.retention,
-              subscriptionId: _subscription.id,
-            ),
-          ],
           if (widget.onRename != null) ...[
-            if (widget.policies == null) ...[
-              const Divider(height: 1),
-              const _SectionHeader('Appearance'),
-            ],
-            ListTile(
-              key: const Key('topic-display-name'),
-              title: const LText('Display name'),
-              subtitle: LText(
-                _subscription.displayName ??
-                    Uri.parse(_subscription.url).pathSegments.last,
-              ),
-              onTap: () => _rename(context),
+            if (widget.policies == null) const _SectionHeader('Appearance'),
+            _SettingsPanel(
+              children: [
+                ListTile(
+                  key: const Key('topic-display-name'),
+                  title: const LText('Display name'),
+                  subtitle: LText(
+                    _subscription.displayName ??
+                        Uri.parse(_subscription.url).pathSegments.last,
+                  ),
+                  onTap: () => _rename(context),
+                ),
+              ],
             ),
           ],
-          const Divider(height: 1),
           const _SectionHeader('About'),
-          ListTile(
-            key: const Key('topic-url'),
-            title: const LText('Topic URL'),
-            subtitle: LText(_subscription.url),
-            onTap: () async {
-              await Clipboard.setData(ClipboardData(text: _subscription.url));
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: LText('Topic URL copied.')),
-                );
-              }
-            },
+          _SettingsPanel(
+            children: [
+              ListTile(
+                key: const Key('topic-url'),
+                title: const LText('Topic URL'),
+                subtitle: LText(_subscription.url),
+                onTap: () async {
+                  await Clipboard.setData(
+                    ClipboardData(text: _subscription.url),
+                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: LText('Topic URL copied.')),
+                    );
+                  }
+                },
+              ),
+            ],
           ),
         ],
       ),
@@ -213,6 +239,8 @@ class _NotificationPolicySettings extends StatefulWidget {
     this.retention,
     this.showHeader = true,
     this.showAppearanceHeader = false,
+    this.leadingRows = const [],
+    this.trailingRows = const [],
   });
 
   final NotificationPolicyRepository policies;
@@ -220,6 +248,12 @@ class _NotificationPolicySettings extends StatefulWidget {
   final RetentionSession? retention;
   final bool showHeader;
   final bool showAppearanceHeader;
+
+  /// Rows shown above the policy rows inside the same outlined panel.
+  final List<Widget> leadingRows;
+
+  /// Rows shown below the policy rows inside the same outlined panel.
+  final List<Widget> trailingRows;
 
   @override
   State<_NotificationPolicySettings> createState() =>
@@ -465,113 +499,121 @@ class _NotificationPolicySettingsState
     final overrides = _overrides;
     if (policy == null) return const LinearProgressIndicator();
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.showHeader) const _SectionHeader('Notifications'),
-        ListTile(
-          key: const Key('mute-notifications'),
-          title: const LText('Mute notifications'),
-          subtitle: LText(_muteSummary(policy.mutedUntilEpochSeconds)),
-          onTap: _selectMute,
-        ),
-        ListTile(
-          key: const Key('minimum-priority'),
-          title: const LText('Minimum priority'),
-          subtitle: LText(
-            '${policy.minimumPriority == 1 ? 'Showing all notifications' : 'Priority ${policy.minimumPriority} or higher'}${widget.subscriptionId != null && overrides?.minimumPriority == null ? ' (using global setting)' : ''}',
-          ),
-          onTap: _selectPriority,
-        ),
-        ListTile(
-          key: const Key('attachment-download-policy'),
-          title: const LText('Download attachments'),
-          subtitle: LText(
-            '${_downloadPolicyLabel(policy.attachmentDownloadMaxBytes)}${widget.subscriptionId != null && overrides?.attachmentDownloadMaxBytes == null ? ' (using global setting)' : ''}',
-          ),
-          onTap: _selectDownloadPolicy,
-        ),
-        if (widget.retention != null)
-          _RetentionSettings(retention: widget.retention!, showHeader: false),
-        if (widget.subscriptionId == null)
-          SwitchListTile(
-            key: const Key('insistent-max-priority'),
-            title: const LText('Keep alerting for highest priority'),
-            subtitle: const LText(
-              'Max priority notifications keep alerting until opened.',
+        _SettingsPanel(
+          children: [
+            ...widget.leadingRows,
+            ListTile(
+              key: const Key('mute-notifications'),
+              title: const LText('Mute notifications'),
+              subtitle: LText(_muteSummary(policy.mutedUntilEpochSeconds)),
+              onTap: _selectMute,
             ),
-            value: policy.insistentMaxPriority,
-            onChanged: (value) =>
-                _save(policy.copyWith(insistentMaxPriority: value)),
-          )
-        else
-          ListTile(
-            key: const Key('insistent-max-priority'),
-            title: const LText('Keep alerting for highest priority'),
-            subtitle: LText(
-              '${policy.insistentMaxPriority ? 'Enabled' : 'Disabled'}${overrides?.insistentMaxPriority == null ? ' (using global setting)' : ''}',
+            ListTile(
+              key: const Key('minimum-priority'),
+              title: const LText('Minimum priority'),
+              subtitle: LText(
+                '${policy.minimumPriority == 1 ? 'Showing all notifications' : 'Priority ${policy.minimumPriority} or higher'}${widget.subscriptionId != null && overrides?.minimumPriority == null ? ' (using global setting)' : ''}',
+              ),
+              onTap: _selectPriority,
             ),
-            onTap: overrides == null
-                ? null
-                : () => _selectBooleanOverride(
-                    title: 'Keep alerting for highest priority',
-                    save: (value) => unawaited(
-                      _saveOverrides(
-                        overrides.copyWith(insistentMaxPriority: value),
+            ListTile(
+              key: const Key('attachment-download-policy'),
+              title: const LText('Download attachments'),
+              subtitle: LText(
+                '${_downloadPolicyLabel(policy.attachmentDownloadMaxBytes)}${widget.subscriptionId != null && overrides?.attachmentDownloadMaxBytes == null ? ' (using global setting)' : ''}',
+              ),
+              onTap: _selectDownloadPolicy,
+            ),
+            if (widget.retention != null)
+              _RetentionSettings(retention: widget.retention!),
+            if (widget.subscriptionId == null)
+              SwitchListTile(
+                key: const Key('insistent-max-priority'),
+                title: const LText('Keep alerting for highest priority'),
+                subtitle: const LText(
+                  'Max priority notifications keep alerting until opened.',
+                ),
+                value: policy.insistentMaxPriority,
+                onChanged: (value) =>
+                    _save(policy.copyWith(insistentMaxPriority: value)),
+              )
+            else
+              ListTile(
+                key: const Key('insistent-max-priority'),
+                title: const LText('Keep alerting for highest priority'),
+                subtitle: LText(
+                  '${policy.insistentMaxPriority ? 'Enabled' : 'Disabled'}${overrides?.insistentMaxPriority == null ? ' (using global setting)' : ''}',
+                ),
+                onTap: overrides == null
+                    ? null
+                    : () => _selectBooleanOverride(
+                        title: 'Keep alerting for highest priority',
+                        save: (value) => unawaited(
+                          _saveOverrides(
+                            overrides.copyWith(insistentMaxPriority: value),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-          ),
-        if (widget.subscriptionId != null)
-          ListTile(
-            key: const Key('dedicated-notification-channel'),
-            title: const LText('Dedicated notification channel'),
-            subtitle: LText(
-              '${policy.dedicatedChannel ? 'Enabled' : 'Disabled'}${overrides?.dedicatedChannel == null ? ' (using global setting)' : ''}',
-            ),
-            onTap: overrides == null
-                ? null
-                : () => _selectBooleanOverride(
-                    title: 'Dedicated notification channel',
-                    save: (value) => unawaited(
-                      _saveOverrides(
-                        overrides.copyWith(dedicatedChannel: value),
+              ),
+            if (widget.subscriptionId != null)
+              ListTile(
+                key: const Key('dedicated-notification-channel'),
+                title: const LText('Dedicated notification channel'),
+                subtitle: LText(
+                  '${policy.dedicatedChannel ? 'Enabled' : 'Disabled'}${overrides?.dedicatedChannel == null ? ' (using global setting)' : ''}',
+                ),
+                onTap: overrides == null
+                    ? null
+                    : () => _selectBooleanOverride(
+                        title: 'Dedicated notification channel',
+                        save: (value) => unawaited(
+                          _saveOverrides(
+                            overrides.copyWith(dedicatedChannel: value),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-          ),
-        ListTile(
-          key: const Key('message-channel-settings'),
-          title: const LText('Notification settings'),
-          subtitle: const LText('Open Android notification controls.'),
-          onTap: () => const AndroidNotificationSettings().open(
-            subscriptionId: policy.dedicatedChannel
-                ? widget.subscriptionId
-                : null,
-          ),
+              ),
+            ListTile(
+              key: const Key('message-channel-settings'),
+              title: const LText('Notification settings'),
+              subtitle: const LText('Open Android notification controls.'),
+              onTap: () => const AndroidNotificationSettings().open(
+                subscriptionId: policy.dedicatedChannel
+                    ? widget.subscriptionId
+                    : null,
+              ),
+            ),
+            ...widget.trailingRows,
+          ],
         ),
         if (widget.subscriptionId != null) ...[
-          if (widget.showAppearanceHeader) ...[
-            const Divider(height: 1),
-            const _SectionHeader('Appearance'),
-          ],
-          ListTile(
-            key: const Key('subscription-icon'),
-            title: LText(
-              policy.subscriptionIconPath == null
-                  ? 'Subscription icon'
-                  : 'Subscription icon (tap to remove)',
-            ),
-            subtitle: LText(
-              policy.subscriptionIconPath == null
-                  ? 'Set an icon to be displayed in notifications'
-                  : 'Icon displayed in notifications for this topic',
-            ),
-            onTap: policy.subscriptionIconPath == null
-                ? _selectIcon
-                : overrides == null
-                ? null
-                : () => _saveOverrides(
-                    overrides.copyWith(subscriptionIconPath: null),
-                  ),
+          if (widget.showAppearanceHeader) const _SectionHeader('Appearance'),
+          _SettingsPanel(
+            children: [
+              ListTile(
+                key: const Key('subscription-icon'),
+                title: LText(
+                  policy.subscriptionIconPath == null
+                      ? 'Subscription icon'
+                      : 'Subscription icon (tap to remove)',
+                ),
+                subtitle: LText(
+                  policy.subscriptionIconPath == null
+                      ? 'Set an icon to be displayed in notifications'
+                      : 'Icon displayed in notifications for this topic',
+                ),
+                onTap: policy.subscriptionIconPath == null
+                    ? _selectIcon
+                    : overrides == null
+                    ? null
+                    : () => _saveOverrides(
+                        overrides.copyWith(subscriptionIconPath: null),
+                      ),
+              ),
+            ],
           ),
         ],
       ],
@@ -612,15 +654,10 @@ String _connectionAlertSummary(int seconds) => switch (seconds) {
 };
 
 class _RetentionSettings extends StatefulWidget {
-  const _RetentionSettings({
-    required this.retention,
-    this.subscriptionId,
-    this.showHeader = true,
-  });
+  const _RetentionSettings({required this.retention, this.subscriptionId});
 
   final RetentionSession retention;
   final int? subscriptionId;
-  final bool showHeader;
 
   @override
   State<_RetentionSettings> createState() => _RetentionSettingsState();
@@ -708,26 +745,20 @@ class _RetentionSettingsState extends State<_RetentionSettings> {
   @override
   Widget build(BuildContext context) {
     final settings = _settings;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (widget.showHeader) const _SectionHeader('Notifications'),
-        if (settings == null)
-          const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else
-          ListTile(
-            title: const LText('Delete notifications'),
-            subtitle: LText(
-              widget.subscriptionId == null
-                  ? settings.global.summary
-                  : settings.summary,
-            ),
-            onTap: _select,
-          ),
-      ],
+    if (settings == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return ListTile(
+      title: const LText('Delete notifications'),
+      subtitle: LText(
+        widget.subscriptionId == null
+            ? settings.global.summary
+            : settings.summary,
+      ),
+      onTap: _select,
     );
   }
 }
@@ -793,7 +824,7 @@ class _BackgroundListeningSettingsState
   @override
   Widget build(BuildContext context) {
     final enabled = _settings?.enabled ?? false;
-    return Column(
+    return _PanelRows(
       children: [
         SwitchListTile(
           key: const Key('background-listening-switch'),
@@ -1051,226 +1082,270 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const _SectionHeader('General'),
-        ListTile(
-          key: const Key('default-server'),
-          title: const LText('Default server'),
-          subtitle: LText(settings.defaultServer),
-          onTap: _editServer,
-        ),
-        ListTile(
-          key: const Key('users-settings'),
-          title: const LText('Manage users'),
-          subtitle: const LText('Add/remove users for protected topics'),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => _AccountsScreen(repository: widget.repository),
+        _SettingsPanel(
+          children: [
+            ListTile(
+              key: const Key('default-server'),
+              title: const LText('Default server'),
+              subtitle: LText(settings.defaultServer),
+              onTap: _editServer,
             ),
-          ),
-        ),
-        ListTile(
-          key: const Key('language-setting'),
-          title: const LText('Language'),
-          subtitle: LText(
-            settings.languageTag == 'system'
-                ? 'Using system default'
-                : supportedAppLanguages
-                          .where((item) => item.$1 == settings.languageTag)
-                          .map((item) => item.$2)
-                          .firstOrNull ??
-                      settings.languageTag,
-          ),
-          onTap: () async {
-            final value = await _choose('Language', [
-              const ('System default', 'system'),
-              for (final language in supportedAppLanguages)
-                (language.$2, language.$1),
-            ]);
-            if (value != null) {
-              await _save(settings.copyWith(languageTag: value));
-            }
-          },
+            ListTile(
+              key: const Key('users-settings'),
+              title: const LText('Manage users'),
+              subtitle: const LText('Add/remove users for protected topics'),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      _AccountsScreen(repository: widget.repository),
+                ),
+              ),
+            ),
+            ListTile(
+              key: const Key('language-setting'),
+              title: const LText('Language'),
+              subtitle: LText(
+                settings.languageTag == 'system'
+                    ? 'Using system default'
+                    : supportedAppLanguages
+                              .where((item) => item.$1 == settings.languageTag)
+                              .map((item) => item.$2)
+                              .firstOrNull ??
+                          settings.languageTag,
+              ),
+              onTap: () async {
+                final value = await _choose('Language', [
+                  const ('System default', 'system'),
+                  for (final language in supportedAppLanguages)
+                    (language.$2, language.$1),
+                ]);
+                if (value != null) {
+                  await _save(settings.copyWith(languageTag: value));
+                }
+              },
+            ),
+          ],
         ),
         const _SectionHeader('Appearance'),
-        ListTile(
-          key: const Key('theme-setting'),
-          title: const LText('Dark mode'),
-          subtitle: LText(switch (settings.theme) {
-            AppThemePreference.system => 'Follow system',
-            AppThemePreference.light => 'Off',
-            AppThemePreference.dark => 'On',
-          }),
-          onTap: () async {
-            final value = await _choose('Dark mode', const [
-              ('Follow system', AppThemePreference.system),
-              ('On', AppThemePreference.dark),
-              ('Off', AppThemePreference.light),
-            ]);
-            if (value != null) await _save(settings.copyWith(theme: value));
-          },
-        ),
-        SwitchListTile(
-          key: const Key('dynamic-colors-setting'),
-          title: const LText('Dynamic colors'),
-          subtitle: const LText('Use colors from the Android system theme.'),
-          value: settings.dynamicColors,
-          onChanged: (value) => _save(settings.copyWith(dynamicColors: value)),
-        ),
-        SwitchListTile(
-          key: const Key('message-bar-setting'),
-          title: const LText('Show message bar'),
-          subtitle: const LText('Show the quick publish bar in topic views.'),
-          value: settings.messageBar == MessageBarPreference.enabled,
-          onChanged: (value) => _save(
-            settings.copyWith(
-              messageBar: value
-                  ? MessageBarPreference.enabled
-                  : MessageBarPreference.disabled,
+        _SettingsPanel(
+          children: [
+            ListTile(
+              key: const Key('theme-setting'),
+              title: const LText('Dark mode'),
+              subtitle: LText(switch (settings.theme) {
+                AppThemePreference.system => 'Follow system',
+                AppThemePreference.light => 'Off',
+                AppThemePreference.dark => 'On',
+              }),
+              onTap: () async {
+                final value = await _choose('Dark mode', const [
+                  ('Follow system', AppThemePreference.system),
+                  ('On', AppThemePreference.dark),
+                  ('Off', AppThemePreference.light),
+                ]);
+                if (value != null) await _save(settings.copyWith(theme: value));
+              },
             ),
-          ),
+            SwitchListTile(
+              key: const Key('dynamic-colors-setting'),
+              title: const LText('Dynamic colors'),
+              subtitle: const LText(
+                'Use colors from the Android system theme.',
+              ),
+              value: settings.dynamicColors,
+              onChanged: (value) =>
+                  _save(settings.copyWith(dynamicColors: value)),
+            ),
+            SwitchListTile(
+              key: const Key('message-bar-setting'),
+              title: const LText('Show message bar'),
+              subtitle: const LText(
+                'Show the quick publish bar in topic views.',
+              ),
+              value: settings.messageBar == MessageBarPreference.enabled,
+              onChanged: (value) => _save(
+                settings.copyWith(
+                  messageBar: value
+                      ? MessageBarPreference.enabled
+                      : MessageBarPreference.disabled,
+                ),
+              ),
+            ),
+            SwitchListTile(
+              key: const Key('new-messages-at-bottom-setting'),
+              title: const LText('New messages at bottom'),
+              subtitle: const LText(
+                'Show older notifications first and append new ones below.',
+              ),
+              value: settings.newMessagesAtBottom,
+              onChanged: (value) =>
+                  _save(settings.copyWith(newMessagesAtBottom: value)),
+            ),
+          ],
         ),
         const _SectionHeader('Backup & Restore'),
-        ListTile(
-          key: const Key('backup-setting'),
-          title: const LText('Back up to file'),
-          subtitle: const LText('Export config, notifications, and users'),
-          onTap: _backup,
-        ),
-        ListTile(
-          key: const Key('restore-setting'),
-          title: const LText('Restore from file'),
-          subtitle: const LText('Import config, notifications and users'),
-          onTap: _restore,
+        _SettingsPanel(
+          children: [
+            ListTile(
+              key: const Key('backup-setting'),
+              title: const LText('Back up to file'),
+              subtitle: const LText('Export config, notifications, and users'),
+              onTap: _backup,
+            ),
+            ListTile(
+              key: const Key('restore-setting'),
+              title: const LText('Restore from file'),
+              subtitle: const LText('Import config, notifications and users'),
+              onTap: _restore,
+            ),
+          ],
         ),
         const _SectionHeader('Advanced'),
-        ListTile(
-          key: const Key('disconnected-alerts-setting'),
-          title: const LText('Alert when disconnected'),
-          subtitle: LText(
-            _connectionAlertSummary(settings.connectionAlertSeconds),
-          ),
-          onTap: () async {
-            final value = await _choose('Connection alert', const [
-              ('Never', 0),
-              ('After 5 minutes', 300),
-              ('After 15 minutes', 900),
-              ('After 1 hour', 3600),
-              ('After 3 hours', 10800),
-              ('After 12 hours', 43200),
-            ]);
-            if (value != null) {
-              await _save(settings.copyWith(connectionAlertSeconds: value));
-            }
-          },
-        ),
-        ListTile(
-          key: const Key('protocol-setting'),
-          title: const LText('Connection protocol'),
-          subtitle: LText(
-            settings.protocol == ConnectionProtocol.http
-                ? 'HTTP stream'
-                : 'WebSocket',
-          ),
-          onTap: () async {
-            final value = await _choose('Connection protocol', const [
-              ('HTTP stream', ConnectionProtocol.http),
-              ('WebSocket', ConnectionProtocol.websocket),
-            ]);
-            if (value != null) await _save(settings.copyWith(protocol: value));
-          },
-        ),
-        ListTile(
-          key: const Key('custom-headers-setting'),
-          title: const LText('Custom headers'),
-          subtitle: const LText('Send additional headers to a server.'),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) => _HeadersScreen(repository: widget.repository),
+        _SettingsPanel(
+          children: [
+            ListTile(
+              key: const Key('disconnected-alerts-setting'),
+              title: const LText('Alert when disconnected'),
+              subtitle: LText(
+                _connectionAlertSummary(settings.connectionAlertSeconds),
+              ),
+              onTap: () async {
+                final value = await _choose('Connection alert', const [
+                  ('Never', 0),
+                  ('After 5 minutes', 300),
+                  ('After 15 minutes', 900),
+                  ('After 1 hour', 3600),
+                  ('After 3 hours', 10800),
+                  ('After 12 hours', 43200),
+                ]);
+                if (value != null) {
+                  await _save(settings.copyWith(connectionAlertSeconds: value));
+                }
+              },
             ),
-          ),
-        ),
-        ListTile(
-          key: const Key('certificates-setting'),
-          title: const LText('Manage certificates'),
-          subtitle: const LText(
-            'Add certificates to the trust store and manage client certificates for mTLS',
-          ),
-          onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute<void>(
-              builder: (_) =>
-                  _CertificatesScreen(repository: widget.repository),
+            ListTile(
+              key: const Key('protocol-setting'),
+              title: const LText('Connection protocol'),
+              subtitle: LText(
+                settings.protocol == ConnectionProtocol.http
+                    ? 'HTTP stream'
+                    : 'WebSocket',
+              ),
+              onTap: () async {
+                final value = await _choose('Connection protocol', const [
+                  ('HTTP stream', ConnectionProtocol.http),
+                  ('WebSocket', ConnectionProtocol.websocket),
+                ]);
+                if (value != null) {
+                  await _save(settings.copyWith(protocol: value));
+                }
+              },
             ),
-          ),
+            ListTile(
+              key: const Key('custom-headers-setting'),
+              title: const LText('Custom headers'),
+              subtitle: const LText('Send additional headers to a server.'),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) => _HeadersScreen(repository: widget.repository),
+                ),
+              ),
+            ),
+            ListTile(
+              key: const Key('certificates-setting'),
+              title: const LText('Manage certificates'),
+              subtitle: const LText(
+                'Add certificates to the trust store and manage client certificates for mTLS',
+              ),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(
+                  builder: (_) =>
+                      _CertificatesScreen(repository: widget.repository),
+                ),
+              ),
+            ),
+            SwitchListTile(
+              key: const Key('broadcasts-setting'),
+              title: const LText('Broadcast messages'),
+              subtitle: const LText(
+                'Apps can receive incoming notifications as broadcasts',
+              ),
+              value: settings.broadcastsEnabled,
+              onChanged: (value) =>
+                  _save(settings.copyWith(broadcastsEnabled: value)),
+            ),
+            SwitchListTile(
+              key: const Key('unified-push-setting'),
+              title: const LText('Enable UnifiedPush'),
+              subtitle: const LText(
+                'ntfy will act as a UnifiedPush distributor',
+              ),
+              value: settings.unifiedPushEnabled,
+              onChanged: (value) async {
+                try {
+                  await const AndroidSettingsPlatform().setUnifiedPushEnabled(
+                    value,
+                  );
+                  await _save(settings.copyWith(unifiedPushEnabled: value));
+                } on PlatformException catch (error) {
+                  _error('Could not update UnifiedPush: ${error.message}');
+                }
+              },
+            ),
+            SwitchListTile(
+              key: const Key('logging-setting'),
+              title: const LText('Record logs'),
+              subtitle: LText(
+                settings.recordLogs
+                    ? 'Logging (up to 1,000 entries) to device …'
+                    : 'Turn on logging, so you can share logs later to diagnose issues.',
+              ),
+              value: settings.recordLogs,
+              onChanged: (value) => _save(settings.copyWith(recordLogs: value)),
+            ),
+            if (settings.recordLogs) ...[
+              ListTile(
+                key: const Key('export-logs-setting'),
+                title: const LText('Export logs'),
+                subtitle: const LText(
+                  'Copy or share original or scrubbed logs',
+                ),
+                onTap: _exportLogs,
+              ),
+              ListTile(
+                key: const Key('clear-logs-setting'),
+                title: const LText('Clear logs'),
+                subtitle: const LText('Delete all recorded log entries'),
+                onTap: () async {
+                  await widget.repository.clearLogs();
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: LText('Logs deleted.')),
+                  );
+                },
+              ),
+            ],
+          ],
         ),
-        SwitchListTile(
-          key: const Key('broadcasts-setting'),
-          title: const LText('Broadcast messages'),
-          subtitle: const LText(
-            'Apps can receive incoming notifications as broadcasts',
-          ),
-          value: settings.broadcastsEnabled,
-          onChanged: (value) =>
-              _save(settings.copyWith(broadcastsEnabled: value)),
-        ),
-        SwitchListTile(
-          key: const Key('unified-push-setting'),
-          title: const LText('Enable UnifiedPush'),
-          subtitle: const LText('ntfy will act as a UnifiedPush distributor'),
-          value: settings.unifiedPushEnabled,
-          onChanged: (value) async {
-            try {
-              await const AndroidSettingsPlatform().setUnifiedPushEnabled(
-                value,
-              );
-              await _save(settings.copyWith(unifiedPushEnabled: value));
-            } on PlatformException catch (error) {
-              _error('Could not update UnifiedPush: ${error.message}');
-            }
-          },
-        ),
-        SwitchListTile(
-          key: const Key('logging-setting'),
-          title: const LText('Record logs'),
-          subtitle: LText(
-            settings.recordLogs ? 'Logging (up to 1,000 entries) to device …' : 'Turn on logging, so you can share logs later to diagnose issues.',
-          ),
-          value: settings.recordLogs,
-          onChanged: (value) => _save(settings.copyWith(recordLogs: value)),
-        ),
-        if (settings.recordLogs) ...[
-          ListTile(
-            key: const Key('export-logs-setting'),
-            title: const LText('Export logs'),
-            subtitle: const LText('Copy or share original or scrubbed logs'),
-            onTap: _exportLogs,
-          ),
-          ListTile(
-            key: const Key('clear-logs-setting'),
-            title: const LText('Clear logs'),
-            subtitle: const LText('Delete all recorded log entries'),
-            onTap: () async {
-              await widget.repository.clearLogs();
-              if (!mounted) return;
-              ScaffoldMessenger.of(
-                this.context,
-              ).showSnackBar(const SnackBar(content: LText('Logs deleted.')));
-            },
-          ),
-        ],
         const _SectionHeader('About'),
-        FutureBuilder<PackageInfo>(
-          future: PackageInfo.fromPlatform(),
-          builder: (context, snapshot) => ListTile(
-            key: const Key('about-setting'),
-            title: const LText('Version'),
-            subtitle: LText(
-              snapshot.hasData
-                  ? 'ntfy ${snapshot.data!.version} (${snapshot.data!.buildNumber})'
-                  : 'Version information',
+        _SettingsPanel(
+          children: [
+            FutureBuilder<PackageInfo>(
+              future: PackageInfo.fromPlatform(),
+              builder: (context, snapshot) => ListTile(
+                key: const Key('about-setting'),
+                title: const LText('Version'),
+                subtitle: LText(
+                  snapshot.hasData
+                      ? 'ntfy ${snapshot.data!.version} (${snapshot.data!.buildNumber})'
+                      : 'Version information',
+                ),
+              ),
             ),
-          ),
+          ],
         ),
       ],
     );
@@ -1727,13 +1802,50 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-    child: LText(
-      label,
-      style: Theme.of(context).textTheme.labelLarge
-          ?.copyWith(color: Theme.of(context).colorScheme.primary),
+    padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+    child: Text(
+      tr(context, label).toUpperCase(),
+      style: monoLabel.copyWith(color: Theme.of(context).colorScheme.primary),
     ),
   );
+}
+
+/// Rows of a settings group, separated by the design's hairline rules.
+class _PanelRows extends StatelessWidget {
+  const _PanelRows({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (var index = 0; index < children.length; index++) ...[
+        if (index > 0) const Divider(height: 1),
+        children[index],
+      ],
+    ],
+  );
+}
+
+/// Hairline-outlined surface grouping the rows that follow a section heading.
+class _SettingsPanel extends StatelessWidget {
+  const _SettingsPanel({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+      child: Material(
+        color: scheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(side: BorderSide(color: scheme.outline)),
+        child: _PanelRows(children: children),
+      ),
+    );
+  }
 }
 
 class _RetentionChoice {

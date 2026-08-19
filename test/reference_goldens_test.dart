@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/background_listening.dart';
+import 'package:ntfy_flutter/design.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/notification_policy.dart';
@@ -17,15 +18,24 @@ import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:ntfy_flutter/topic_feed_screen.dart';
 
 void main() {
-  testWidgets('all ten Android reference states have readable goldens', (
+  testWidgets('all design reference states have readable goldens', (
     tester,
   ) async {
-    final fontLoader = FontLoader('GoldenRoboto')
-      ..addFont(rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
-    await fontLoader.load().timeout(const Duration(seconds: 5));
-    final monospaceLoader = FontLoader('monospace')
-      ..addFont(rootBundle.load('assets/fonts/Roboto-Regular.ttf'));
-    await monospaceLoader.load().timeout(const Duration(seconds: 5));
+    await (FontLoader('Inter')
+          ..addFont(rootBundle.load('assets/fonts/Inter-Regular.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/Inter-SemiBold.ttf')))
+        .load()
+        .timeout(const Duration(seconds: 5));
+    await (FontLoader('HankenGrotesk')
+          ..addFont(rootBundle.load('assets/fonts/HankenGrotesk-SemiBold.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/HankenGrotesk-Bold.ttf')))
+        .load()
+        .timeout(const Duration(seconds: 5));
+    await (FontLoader('JetBrainsMono')
+          ..addFont(rootBundle.load('assets/fonts/JetBrainsMono-Regular.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/JetBrainsMono-SemiBold.ttf')))
+        .load()
+        .timeout(const Duration(seconds: 5));
     final flutterRoot = Platform.environment['FLUTTER_ROOT']!;
     final iconFont = File(
       '$flutterRoot/bin/cache/artifacts/material_fonts/materialicons-regular.otf',
@@ -64,7 +74,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           debugShowCheckedModeBanner: false,
-          theme: _goldenTheme(lightTheme),
+          theme: designTheme(brightness: Brightness.light),
           navigatorObservers: [observer],
           builder: (context, child) => MediaQuery(
             data: MediaQuery.of(context)
@@ -142,6 +152,29 @@ void main() {
     await expectLater(
       find.byType(Overlay),
       matchesGoldenFile('goldens/reference_home_options.png'),
+    );
+
+    await pump(
+      SubscriptionsScreen(
+        store: store,
+        feedFactory: (_) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: store,
+            subscription: subscription,
+            client: _SilentClient(),
+          ),
+        ),
+        retention: RetentionSession(store),
+        backgroundListening: background,
+        notifications: notifications,
+        routeObserver: observer,
+      ),
+    );
+    await tester.tap(find.byTooltip('Add subscription'));
+    await pumpTransition();
+    await expectLater(
+      find.byType(Overlay),
+      matchesGoldenFile('goldens/reference_subscribe.png'),
     );
 
     await pump(topic());
@@ -249,11 +282,6 @@ void main() {
     );
   }, tags: 'golden');
 }
-
-ThemeData _goldenTheme(ThemeData theme) => theme.copyWith(
-  textTheme: theme.textTheme.apply(fontFamily: 'GoldenRoboto'),
-  primaryTextTheme: theme.primaryTextTheme.apply(fontFamily: 'GoldenRoboto'),
-);
 
 class _SilentClient implements NtfyStreamClient {
   final _lines = StreamController<String>();

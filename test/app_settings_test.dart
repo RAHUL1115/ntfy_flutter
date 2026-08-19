@@ -24,6 +24,7 @@ void main() {
         theme: AppThemePreference.dark,
         dynamicColors: false,
         messageBar: MessageBarPreference.disabled,
+        newMessagesAtBottom: true,
         connectionAlertSeconds: 900,
         protocol: ConnectionProtocol.websocket,
         broadcastsEnabled: false,

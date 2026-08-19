@@ -17,6 +17,33 @@ class NtfyTopicIcon extends StatelessWidget {
   );
 }
 
+/// The topic glyph inside the outlined square the design uses wherever a
+/// topic is represented (list rows and empty states).
+class FramedTopicIcon extends StatelessWidget {
+  const FramedTopicIcon({required this.size, super.key});
+
+  /// Outer edge length of the frame.
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final frameColor = scheme.brightness == Brightness.light
+        ? const Color(0xff6e7976)
+        : scheme.outline;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        border: Border.all(color: frameColor, width: 2),
+        borderRadius: BorderRadius.circular(size / 6.4),
+      ),
+      alignment: Alignment.center,
+      child: NtfyTopicIcon(size: size / 2, color: scheme.onSurfaceVariant),
+    );
+  }
+}
+
 class _NtfyTopicIconPainter extends CustomPainter {
   const _NtfyTopicIconPainter(this.color);
 

@@ -4,11 +4,11 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_settings.dart';
 import 'background_listening.dart';
+import 'design.dart';
 import 'attachments.dart';
 import 'message_actions.dart';
 import 'l10n.dart';
@@ -23,47 +23,7 @@ import 'subscriptions.dart';
 import 'topic_feed.dart';
 import 'topic_feed_screen.dart';
 
-final darkTheme = ThemeData(
-  useMaterial3: true,
-  colorScheme: const ColorScheme.dark(
-    primary: Color(0xff84d6c2),
-    onPrimary: Color(0xff00382e),
-    surface: Color(0xff121212),
-    onSurface: Color(0xffe0e0e0),
-    surfaceContainerHigh: Color(0xff282f33),
-    onSurfaceVariant: Color(0xffbfc9c5),
-  ),
-  scaffoldBackgroundColor: const Color(0xff121212),
-  appBarTheme: const AppBarTheme(
-    backgroundColor: Color(0xff1b2023),
-    foregroundColor: Color(0xffe0e0e0),
-  ),
-  floatingActionButtonTheme: const FloatingActionButtonThemeData(
-    backgroundColor: Color(0xff84d6c2),
-    foregroundColor: Color(0xff00382e),
-  ),
-);
-
-final lightTheme = ThemeData(
-  useMaterial3: true,
-  colorScheme: const ColorScheme.light(
-    primary: Color(0xff338574),
-    onPrimary: Colors.white,
-    surface: Colors.white,
-    onSurface: Color(0xff171d1b),
-    surfaceContainerHigh: Color(0xffeeeeee),
-    onSurfaceVariant: Color(0xff3f4946),
-  ),
-  scaffoldBackgroundColor: Colors.white,
-  appBarTheme: const AppBarTheme(
-    backgroundColor: Colors.white,
-    foregroundColor: Color(0xff171d1b),
-  ),
-  floatingActionButtonTheme: const FloatingActionButtonThemeData(
-    backgroundColor: Color(0xff338574),
-    foregroundColor: Colors.white,
-  ),
-);
+export 'design.dart' show darkTheme, lightTheme;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -192,10 +152,10 @@ class _NtfyAppState extends State<NtfyApp> {
       scaffoldMessengerKey: _messengerKey,
       title: 'ntfy',
       theme: _appSettings.dynamicColors && dynamicLight != null
-          ? lightTheme.copyWith(colorScheme: dynamicLight)
+          ? designTheme(brightness: Brightness.light, colorScheme: dynamicLight)
           : lightTheme,
       darkTheme: _appSettings.dynamicColors && dynamicDark != null
-          ? darkTheme.copyWith(colorScheme: dynamicDark)
+          ? designTheme(brightness: Brightness.dark, colorScheme: dynamicDark)
           : darkTheme,
       themeMode: switch (_appSettings.theme) {
         AppThemePreference.light => ThemeMode.light,
@@ -406,19 +366,15 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
         await _openSettings();
       case _HomeAction.docs:
         await _openExternal(Uri.parse('https://ntfy.sh/docs'));
-      case _HomeAction.rate:
-        final package = await PackageInfo.fromPlatform();
-        final market = Uri.parse('market://details?id=${package.packageName}');
-        if (!await launchUrl(market, mode: LaunchMode.externalApplication)) {
-          await _openExternal(
-            Uri.parse(
-              'https://play.google.com/store/apps/details?id=${package.packageName}',
-            ),
-          );
-        }
+      case _HomeAction.update:
+        await _openExternal(
+          Uri.parse(
+            'https://github.com/RAHUL1115/ntfy_flutter/releases/latest',
+          ),
+        );
       case _HomeAction.reportBug:
         await _openExternal(
-          Uri.parse('https://github.com/binwiederhier/ntfy/issues'),
+          Uri.parse('https://github.com/RAHUL1115/ntfy_flutter/issues'),
         );
     }
   }
@@ -502,9 +458,12 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   }
 
   Future<void> _showSubscribeDialog() async {
-    final saved = await showDialog<Subscription>(
+    final saved = await showModalBottomSheet<Subscription>(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      showDragHandle: true,
       builder: (_) => _SubscribeDialog(
         store: widget.store,
         defaultServer: widget.appSettings.defaultServer,
@@ -558,6 +517,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
           initialEventId: initialEventId,
           showMessageBar:
               widget.appSettings.messageBar == MessageBarPreference.enabled,
+          newMessagesAtBottom: widget.appSettings.newMessagesAtBottom,
           onMessagesViewed: () => widget.store.markRead(subscription.id),
           onRename: (displayName) =>
               widget.store.rename(subscription.id, displayName),
@@ -745,7 +705,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const LText('Subscribed topics'),
+        title: LText(
+          'Subscribed topics',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
         actions: [
           if (_connections.any((item) => item.error != null))
             IconButton(
@@ -755,36 +718,76 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               icon: const Icon(Icons.cloud_off_outlined),
             ),
           if (_globalPolicy != null)
-            IconButton(
-              key: const Key('global-notification-state'),
-              tooltip: tr(
-                context,
-                _globalPolicy!.mutedUntilEpochSeconds == 0
-                    ? 'Notifications enabled'
-                    : 'Notifications muted; tap to enable',
-              ),
-              onPressed: _toggleGlobalNotifications,
-              icon: Icon(
-                _globalPolicy!.mutedUntilEpochSeconds == 0
-                    ? Icons.notifications
-                    : Icons.notifications_off_outlined,
+            Hero(
+              tag: 'home-notification-to-search',
+              transitionOnUserGestures: true,
+              child: Material(
+                color: Colors.transparent,
+                child: IconButton(
+                  key: const Key('global-notification-state'),
+                  tooltip: tr(
+                    context,
+                    _globalPolicy!.mutedUntilEpochSeconds == 0
+                        ? 'Notifications enabled'
+                        : 'Notifications muted; tap to enable',
+                  ),
+                  onPressed: _toggleGlobalNotifications,
+                  icon: Icon(
+                    _globalPolicy!.mutedUntilEpochSeconds == 0
+                        ? Icons.notifications_none
+                        : Icons.notifications_off_outlined,
+                  ),
+                ),
               ),
             ),
           PopupMenuButton<_HomeAction>(
+            position: PopupMenuPosition.under,
+            offset: const Offset(-8, -4),
+            constraints: const BoxConstraints.tightFor(width: 200),
             onSelected: (action) => unawaited(_selectHomeAction(action)),
             itemBuilder: (_) => const [
               PopupMenuItem(
                 value: _HomeAction.settings,
+                height: 52,
+                padding: EdgeInsets.symmetric(horizontal: 16),
                 child: LText('Settings'),
               ),
+              PopupMenuDivider(height: 1),
               PopupMenuItem(
-                value: _HomeAction.docs,
-                child: LText('Documentation'),
+                value: _HomeAction.update,
+                height: 52,
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: LText(
+                        'Update app',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    SizedBox(width: 8),
+                    Icon(
+                      Icons.system_update_alt,
+                      size: 16,
+                      color: Color(0xff004f45),
+                    ),
+                  ],
+                ),
               ),
-              PopupMenuItem(value: _HomeAction.rate, child: LText('Rate app')),
+              PopupMenuDivider(height: 1),
               PopupMenuItem(
                 value: _HomeAction.reportBug,
+                height: 52,
+                padding: EdgeInsets.symmetric(horizontal: 16),
                 child: LText('Report a bug'),
+              ),
+              PopupMenuDivider(height: 1),
+              PopupMenuItem(
+                value: _HomeAction.docs,
+                height: 52,
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: LText('Documentation'),
               ),
             ],
           ),
@@ -794,10 +797,21 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
       floatingActionButton: Semantics(
         button: true,
         label: tr(context, 'Add subscription'),
-        child: FloatingActionButton(
-          onPressed: _showSubscribeDialog,
-          tooltip: tr(context, 'Add subscription'),
-          child: const Icon(Icons.add),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(fabRadius),
+            boxShadow: [
+              BoxShadow(
+                color: Theme.of(context).colorScheme.shadow,
+                offset: hardShadowOffset,
+              ),
+            ],
+          ),
+          child: FloatingActionButton(
+            onPressed: _showSubscribeDialog,
+            tooltip: tr(context, 'Add subscription'),
+            child: const Icon(Icons.add),
+          ),
         ),
       ),
     );
@@ -809,60 +823,137 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
       return const Center(child: CircularProgressIndicator());
     }
     if (subscriptions.isNotEmpty) {
-      return RefreshIndicator(
-        onRefresh: _manualRefresh,
-        child: ListView.separated(
-          physics: const AlwaysScrollableScrollPhysics(),
-          itemCount: subscriptions.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final subscription = subscriptions[index];
-            return Dismissible(
-              key: ValueKey('subscription-${subscription.id}'),
-              direction: DismissDirection.horizontal,
-              confirmDismiss: (_) => _confirmRemove(subscription),
-              onDismissed: (_) => _removeSubscription(subscription),
-              background: const _DeleteBackground(
-                alignment: Alignment.centerLeft,
-              ),
-              secondaryBackground: const _DeleteBackground(
-                alignment: Alignment.centerRight,
-              ),
-              child: ListTile(
-                leading: const NtfyTopicIcon(
-                  key: Key('ntfy-topic-icon'),
-                  size: 35,
-                ),
-                title: LText(
-                  subscription.displayName ??
-                      Uri.parse(subscription.url).pathSegments.last,
-                ),
-                subtitle: LText(_subscriptionSubtitle(context, subscription)),
-                trailing:
-                    !_hasConnectionError(subscription) &&
-                        subscription.unreadCount == 0
-                    ? null
-                    : Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_hasConnectionError(subscription))
-                            Icon(
-                              Icons.cloud_off_outlined,
-                              color: Theme.of(context).colorScheme.error,
-                              semanticLabel: tr(context, 'Connection error'),
-                            ),
-                          if (_hasConnectionError(subscription) &&
-                              subscription.unreadCount != 0)
-                            const SizedBox(width: 8),
-                          if (subscription.unreadCount != 0)
-                            _UnreadBadge(subscription.unreadCount),
-                        ],
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final proportionalSpace = constraints.maxHeight * 0.22;
+          final topSpace = proportionalSpace < 150 ? 150.0 : proportionalSpace;
+          return Column(
+            children: [
+              SizedBox(height: topSpace),
+              Expanded(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      top: BorderSide(
+                        color: Theme.of(context).colorScheme.outline,
                       ),
-                onTap: () => _openSubscription(subscription),
+                    ),
+                  ),
+                  child: RefreshIndicator(
+                    onRefresh: _manualRefresh,
+                    child: ListView.separated(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      itemCount: subscriptions.length,
+                      separatorBuilder: (_, _) => const SizedBox.shrink(),
+                      itemBuilder: (context, index) {
+                        final subscription = subscriptions[index];
+                        return Dismissible(
+                          key: ValueKey('subscription-${subscription.id}'),
+                          direction: DismissDirection.horizontal,
+                          confirmDismiss: (_) => _confirmRemove(subscription),
+                          onDismissed: (_) => _removeSubscription(subscription),
+                          background: const _DeleteBackground(
+                            alignment: Alignment.centerLeft,
+                          ),
+                          secondaryBackground: const _DeleteBackground(
+                            alignment: Alignment.centerRight,
+                          ),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              border: Border(
+                                bottom: BorderSide(
+                                  color: Theme.of(context).colorScheme.outline,
+                                ),
+                              ),
+                            ),
+                            child: InkWell(
+                              onTap: () => _openSubscription(subscription),
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  children: [
+                                    const FramedTopicIcon(
+                                      key: Key('ntfy-topic-icon'),
+                                      size: 40,
+                                    ),
+                                    const SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Hero(
+                                            tag:
+                                                'topic-title-${subscription.id}',
+                                            transitionOnUserGestures: true,
+                                            child: Material(
+                                              color: Colors.transparent,
+                                              child: LText(
+                                                subscription.displayName ??
+                                                    Uri.parse(subscription.url)
+                                                        .pathSegments
+                                                        .last,
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium
+                                                    ?.copyWith(fontSize: 18),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          LText(
+                                            _subscriptionSubtitle(
+                                              context,
+                                              subscription,
+                                            ),
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  fontSize: 13,
+                                                  color: Theme.of(context)
+                                                      .colorScheme
+                                                      .onSurfaceVariant,
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    if (_hasConnectionError(subscription) ||
+                                        subscription.unreadCount != 0) ...[
+                                      const SizedBox(width: 8),
+                                      if (_hasConnectionError(subscription))
+                                        Icon(
+                                          Icons.cloud_off_outlined,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .error,
+                                          semanticLabel: tr(
+                                            context,
+                                            'Connection error',
+                                          ),
+                                        ),
+                                      if (_hasConnectionError(subscription) &&
+                                          subscription.unreadCount != 0)
+                                        const SizedBox(width: 8),
+                                      if (subscription.unreadCount != 0)
+                                        _UnreadBadge(subscription.unreadCount),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
               ),
-            );
-          },
-        ),
+            ],
+          );
+        },
       );
     }
     return Center(
@@ -871,7 +962,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const NtfyTopicIcon(size: 48),
+            const FramedTopicIcon(size: 64),
             const SizedBox(height: 20),
             LText(
               "It looks like you don't have any subscriptions yet.",
@@ -895,7 +986,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   }
 }
 
-enum _HomeAction { settings, docs, rate, reportBug }
+enum _HomeAction { settings, docs, update, reportBug }
 
 class _UnreadBadge extends StatelessWidget {
   const _UnreadBadge(this.count);
@@ -908,13 +999,11 @@ class _UnreadBadge extends StatelessWidget {
     child: Container(
       constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primary,
-        borderRadius: BorderRadius.circular(12),
-      ),
+      decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
       child: LText(
         count > 99 ? '99+' : '$count',
-        style: TextStyle(color: Theme.of(context).colorScheme.onPrimary),
+        style: Theme.of(context).textTheme.labelSmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onPrimary),
       ),
     ),
   );
@@ -955,6 +1044,7 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
   final _nameController = TextEditingController();
   String? _error;
   bool _saving = false;
+  bool _useAnotherServer = false;
 
   @override
   void initState() {
@@ -1012,62 +1102,136 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final canSave = !_saving && _urlController.text.trim().isNotEmpty;
     return PopScope(
       canPop: !_saving,
-      child: Dialog.fullscreen(
-        child: Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              tooltip: tr(context, 'Cancel'),
-              onPressed: _saving ? null : () => Navigator.pop(context),
-              icon: const Icon(Icons.close),
+      child: FractionallySizedBox(
+        heightFactor: 0.76,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 8, 16),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: LText(
+                      'Subscribe to topic',
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontSize: 22, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: tr(context, 'Cancel'),
+                    onPressed: _saving ? null : () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
             ),
-            title: const LText('Subscribe to topic'),
-            actions: [
-              TextButton(
-                onPressed: _saving || _urlController.text.trim().isEmpty
-                    ? null
-                    : _save,
-                child: _saving
-                    ? const SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const LText('SUBSCRIBE'),
+            Divider(height: 1, color: scheme.outline),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
+                children: [
+                  TextField(
+                    key: const Key('topic-url-field'),
+                    controller: _urlController,
+                    autofocus: false,
+                    keyboardType: TextInputType.url,
+                    autocorrect: false,
+                    decoration: InputDecoration(
+                      floatingLabelBehavior: FloatingLabelBehavior.always,
+                      labelText: tr(
+                        context,
+                        _useAnotherServer ? 'Topic URL' : 'Topic name',
+                      ).toUpperCase(),
+                      hintText: tr(
+                        context,
+                        _useAnotherServer
+                            ? 'https://ntfy.sh/my_alerts'
+                            : 'my_alerts',
+                      ),
+                      prefix: _useAnotherServer
+                          ? null
+                          : Text('${Uri.parse(widget.defaultServer).host}/'),
+                      helperText: tr(
+                        context,
+                        'Topic names are public. Avoid sensitive information.',
+                      ),
+                      errorText: _error,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _saving
+                          ? null
+                          : () => setState(
+                              () => _useAnotherServer = !_useAnotherServer,
+                            ),
+                      icon: Icon(
+                        _useAnotherServer
+                            ? Icons.keyboard_arrow_left
+                            : Icons.keyboard_arrow_right,
+                        size: 18,
+                      ),
+                      label: LText(
+                        _useAnotherServer
+                            ? 'Use default server'
+                            : 'Use another server',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    key: const Key('display-name-field'),
+                    controller: _nameController,
+                    decoration: InputDecoration(
+                      labelText: tr(
+                        context,
+                        'Display name (optional)',
+                      ).toUpperCase(),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          body: ListView(
-            padding: const EdgeInsets.all(24),
-            children: [
-              const LText(
-                'Enter a topic name or URL to start receiving notifications.',
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: scheme.outline)),
               ),
-              const SizedBox(height: 24),
-              TextField(
-                key: const Key('topic-url-field'),
-                controller: _urlController,
-                autofocus: true,
-                keyboardType: TextInputType.url,
-                autocorrect: false,
-                decoration: InputDecoration(
-                  labelText: tr(context, 'Topic name or URL'),
-                  hintText: tr(context, 'mytopic'),
-                  errorText: _error,
-                  border: const OutlineInputBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    boxShadow: canSave
+                        ? [
+                            BoxShadow(
+                              color: scheme.shadow,
+                              offset: hardShadowOffset,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  child: SizedBox(
+                    height: 52,
+                    child: FilledButton(
+                      onPressed: canSave ? _save : null,
+                      child: _saving
+                          ? const SizedBox.square(
+                              dimension: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const LText('Subscribe'),
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 16),
-              TextField(
-                key: const Key('display-name-field'),
-                controller: _nameController,
-                decoration: InputDecoration(
-                  labelText: tr(context, 'Display name (optional)'),
-                  border: OutlineInputBorder(),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

@@ -1,7 +1,7 @@
 name: ntfy_flutter
 description: A Flutter port of the ntfy Android app.
 publish_to: none
-version: 0.1.2+3
+version: 0.1.3+4
 
 environment:
   sdk: ^3.13.0
@@ -39,6 +39,24 @@ flutter:
     - assets/emoji.json
     - assets/i18n.json
   fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Inter-SemiBold.ttf
+          weight: 600
+    - family: HankenGrotesk
+      fonts:
+        - asset: assets/fonts/HankenGrotesk-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/HankenGrotesk-Bold.ttf
+          weight: 700
+    - family: JetBrainsMono
+      fonts:
+        - asset: assets/fonts/JetBrainsMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/JetBrainsMono-SemiBold.ttf
+          weight: 600
     - family: GoldenRoboto
       fonts:
         - asset: assets/fonts/Roboto-Regular.ttf

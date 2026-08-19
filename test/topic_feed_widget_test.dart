@@ -16,6 +16,34 @@ import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:ntfy_flutter/topic_feed_screen.dart';
 
 void main() {
+  testWidgets('bottom message order shows oldest notification first', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 3);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+          newMessagesAtBottom: true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getTopLeft(find.text('Body 0')).dy,
+      lessThan(tester.getTopLeft(find.text('Body 2')).dy),
+    );
+  });
+
   testWidgets('markdown content is rendered as markdown', (tester) async {
     final repository = _WidgetRepository(messageCount: 0);
     repository.messages.add(
@@ -224,7 +252,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Production alerts'), findsOneWidget);
-      expect(find.text('Connected'), findsOneWidget);
+      expect(find.text('Connected'), findsNothing);
       expect(find.text('Body 2'), findsOneWidget);
       expect(find.text('Priority 5'), findsNothing);
       expect(find.textContaining('Title 2'), findsOneWidget);
@@ -402,6 +430,7 @@ void main() {
     expect(find.text('Offline — retrying'), findsOneWidget);
     expect(find.text('Body 2'), findsOneWidget);
 
+    await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
     await tester.pumpWidget(
@@ -662,7 +691,7 @@ void main() {
 
     expect(find.text('Could not unsubscribe. Try again.'), findsOneWidget);
     expect(find.text('Body 0'), findsOneWidget);
-    expect(find.text('Connected'), findsOneWidget);
+    expect(find.text('Connected'), findsNothing);
     expect(client.closed, isFalse);
     expect(await repository.all(), [repository.subscription]);
   });
@@ -692,7 +721,7 @@ void main() {
     await tester.tap(find.text('Subscription settings'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Notifications'), findsOneWidget);
+    expect(find.text('NOTIFICATIONS'), findsOneWidget);
     expect(find.text('Delete notifications'), findsOneWidget);
     expect(
       find.text('Never auto-delete notifications (using global setting)'),

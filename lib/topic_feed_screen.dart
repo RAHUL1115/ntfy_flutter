@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'attachments.dart';
+import 'design.dart';
 import 'emojis.dart';
 import 'l10n.dart';
 import 'message_actions.dart';
@@ -40,6 +41,7 @@ class TopicFeedScreen extends StatefulWidget {
     this.attachmentService = const AttachmentService(),
     this.actionExecutor = const MessageActionExecutor(),
     this.showMessageBar = true,
+    this.newMessagesAtBottom = false,
     super.key,
   });
 
@@ -57,6 +59,7 @@ class TopicFeedScreen extends StatefulWidget {
   final AttachmentService attachmentService;
   final MessageActionExecutor actionExecutor;
   final bool showMessageBar;
+  final bool newMessagesAtBottom;
 
   @override
   State<TopicFeedScreen> createState() => _TopicFeedScreenState();
@@ -257,8 +260,12 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     final hadNewMessage = next.messages.length > _state.messages.length;
     final wasAtLatest =
         !_scrollController.hasClients ||
-        _scrollController.position.extentBefore < 48;
-    final anchor = hadNewMessage && !wasAtLatest ? _captureAnchor() : null;
+        (widget.newMessagesAtBottom
+            ? _scrollController.position.extentAfter < 48
+            : _scrollController.position.extentBefore < 48);
+    final anchor = hadNewMessage && !wasAtLatest && !widget.newMessagesAtBottom
+        ? _captureAnchor()
+        : null;
     if (hadNewMessage) _markMessagesViewed();
     setState(() {
       _state = next;
@@ -295,7 +302,10 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         return;
       }
       final lastIndex = _state.messages.length - 1;
-      final fraction = lastIndex == 0 ? 0.0 : index / lastIndex;
+      final visibleIndex = widget.newMessagesAtBottom
+          ? lastIndex - index
+          : index;
+      final fraction = lastIndex == 0 ? 0.0 : visibleIndex / lastIndex;
       _scrollController.jumpTo(
         _scrollController.position.maxScrollExtent * fraction,
       );
@@ -369,7 +379,11 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
 
   void _scrollToLatest() {
     if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.minScrollExtent);
+    _scrollController.jumpTo(
+      widget.newMessagesAtBottom
+          ? _scrollController.position.maxScrollExtent
+          : _scrollController.position.minScrollExtent,
+    );
     if (_showNewMessages) setState(() => _showNewMessages = false);
   }
 
@@ -718,10 +732,10 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         }
       },
       child: Scaffold(
-        backgroundColor: theme.brightness == Brightness.light
-            ? theme.colorScheme.surfaceContainerHigh
-            : theme.scaffoldBackgroundColor,
         appBar: AppBar(
+          shape: _searching
+              ? Border(bottom: BorderSide(color: theme.colorScheme.outline))
+              : null,
           leading: _searching
               ? IconButton(
                   key: const Key('topic-search-back'),
@@ -732,30 +746,61 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                   }),
                   icon: const Icon(Icons.arrow_back),
                 )
-              : null,
+              : IconButton(
+                  tooltip: tr(context, 'Back'),
+                  onPressed: () => Navigator.maybePop(context),
+                  icon: const Icon(Icons.arrow_back),
+                ),
           title: _searching
               ? TextField(
                   key: const Key('topic-search-field'),
                   controller: _search,
                   autofocus: true,
                   textInputAction: TextInputAction.search,
+                  style: theme.textTheme.bodyLarge?.copyWith(fontSize: 18),
                   decoration: InputDecoration(
+                    filled: false,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                      fontSize: 18,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                     hintText: tr(context, 'Search in notifications'),
                     border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
                   ),
                   onChanged: (_) => setState(() {}),
                 )
-              : LText(
-                  _subscription.displayName ??
-                      Uri.parse(_subscription.url).pathSegments.last,
+              : Hero(
+                  tag: 'topic-title-${_subscription.id}',
+                  transitionOnUserGestures: true,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: LText(
+                      _subscription.displayName ??
+                          Uri.parse(_subscription.url).pathSegments.last,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontSize: 20,
+                      ),
+                    ),
+                  ),
                 ),
           actions: [
             if (!_searching) ...[
-              IconButton(
-                key: const Key('topic-search-action'),
-                tooltip: tr(context, 'Search notifications'),
-                onPressed: () => setState(() => _searching = true),
-                icon: const Icon(Icons.search),
+              Hero(
+                tag: 'home-notification-to-search',
+                transitionOnUserGestures: true,
+                child: Material(
+                  color: Colors.transparent,
+                  child: IconButton(
+                    key: const Key('topic-search-action'),
+                    tooltip: tr(context, 'Search notifications'),
+                    onPressed: () => setState(() => _searching = true),
+                    icon: const Icon(Icons.search),
+                  ),
+                ),
               ),
               if (_state.status == FeedStatus.error ||
                   _state.status == FeedStatus.offline)
@@ -777,11 +822,14 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                   onPressed: _selectNotificationMute,
                   icon: Icon(
                     _notificationPolicy!.mutedUntilEpochSeconds == 0
-                        ? Icons.notifications
+                        ? Icons.notifications_none
                         : Icons.notifications_off_outlined,
                   ),
                 ),
               PopupMenuButton<_TopicAction>(
+                position: PopupMenuPosition.under,
+                offset: const Offset(-8, -4),
+                constraints: const BoxConstraints.tightFor(width: 220),
                 onSelected: (action) {
                   switch (action) {
                     case _TopicAction.settings:
@@ -799,32 +847,48 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                 itemBuilder: (_) => [
                   const PopupMenuItem(
                     value: _TopicAction.settings,
+                    height: 52,
+                    padding: EdgeInsets.symmetric(horizontal: 16),
                     child: LText('Subscription settings'),
                   ),
+                  const PopupMenuDivider(height: 1),
                   PopupMenuItem(
                     value: _TopicAction.clear,
                     enabled: _state.messages.isNotEmpty,
+                    height: 52,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: const LText('Clear all notifications'),
                   ),
+                  const PopupMenuDivider(height: 1),
                   const PopupMenuItem(
                     value: _TopicAction.test,
+                    height: 52,
+                    padding: EdgeInsets.symmetric(horizontal: 16),
                     child: LText('Send test notification'),
                   ),
-                  if (Uri.parse(_subscription.url).host != 'ntfy.sh')
+                  if (Uri.parse(_subscription.url).host != 'ntfy.sh') ...[
+                    const PopupMenuDivider(height: 1),
                     const PopupMenuItem(
                       value: _TopicAction.copyUrl,
+                      height: 52,
+                      padding: EdgeInsets.symmetric(horizontal: 16),
                       child: LText('Copy topic URL'),
                     ),
-                  if (widget.onUnsubscribe != null)
+                  ],
+                  if (widget.onUnsubscribe != null) ...[
+                    const PopupMenuDivider(height: 1),
                     const PopupMenuItem(
                       value: _TopicAction.unsubscribe,
+                      height: 52,
+                      padding: EdgeInsets.symmetric(horizontal: 16),
                       child: LText('Unsubscribe'),
                     ),
+                  ],
                 ],
               ),
             ],
           ],
-          bottom: _searching
+          bottom: _searching || _state.status == FeedStatus.connected
               ? null
               : PreferredSize(
                   preferredSize: const Size.fromHeight(24),
@@ -835,8 +899,8 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                       key: const Key('feed-status'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: theme.appBarTheme.foregroundColor,
+                      style: monoLabel.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
@@ -858,7 +922,11 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
             ? FloatingActionButton.extended(
                 key: const Key('new-messages-action'),
                 onPressed: _scrollToLatest,
-                icon: const Icon(Icons.arrow_upward),
+                icon: Icon(
+                  widget.newMessagesAtBottom
+                      ? Icons.arrow_downward
+                      : Icons.arrow_upward,
+                ),
                 label: const LText('New messages'),
               )
             : null,
@@ -870,27 +938,42 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     if (_state.messages.isEmpty) {
       return Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 24),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const NtfyTopicIcon(size: 48),
-              const SizedBox(height: 20),
+              const Center(child: FramedTopicIcon(size: 64)),
+              const SizedBox(height: 16),
               LText(
                 "You haven't received any notifications for this topic yet.",
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               const LText(
                 'Send a message to this topic with an HTTP PUT or POST request.',
-                textAlign: TextAlign.center,
               ),
-              const SizedBox(height: 12),
-              LText(
-                'Example (using curl):\n\$ curl -d "Hi" ${_subscription.url}',
-                textAlign: TextAlign.left,
-                style: const TextStyle(fontFamily: 'monospace'),
+              const SizedBox(height: 8),
+              const LText('Example (using curl):'),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outline,
+                  ),
+                ),
+                child: LText(
+                  '\$ curl -d "Hi" ${_subscription.url}',
+                  style: const TextStyle(
+                    fontFamily: 'JetBrainsMono',
+                    fontSize: 11,
+                    height: 1.5,
+                  ),
+                ),
               ),
             ],
           ),
@@ -898,9 +981,12 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
       );
     }
     final query = _search.text.trim().toLowerCase();
+    final orderedMessages = widget.newMessagesAtBottom
+        ? _state.messages.reversed
+        : _state.messages;
     final messages = query.isEmpty
-        ? _state.messages
-        : _state.messages.where((message) {
+        ? orderedMessages.toList(growable: false)
+        : orderedMessages.where((message) {
             return message.message.toLowerCase().contains(query) ||
                 (message.title?.toLowerCase().contains(query) ?? false) ||
                 message.tags.any((tag) => tag.toLowerCase().contains(query));
@@ -1078,14 +1164,22 @@ class _MessageCard extends StatelessWidget {
       },
       child: Card(
         key: ValueKey('message-${message.eventId}'),
-        margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        elevation: 1,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        shape: Border(
+          top: BorderSide(color: Theme.of(context).colorScheme.outline),
+          left: BorderSide(color: Theme.of(context).colorScheme.outline),
+          right: BorderSide(color: Theme.of(context).colorScheme.outline),
+          bottom: BorderSide(
+            color: Theme.of(context).colorScheme.shadow,
+            width: 2,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: onClick,
           onLongPress: () => unawaited(_showActions(context)),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 9, 12, 11),
+            padding: const EdgeInsets.all(16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1096,6 +1190,7 @@ class _MessageCard extends StatelessWidget {
                         timestamp,
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontSize: 11,
                         ),
                       ),
                     ),
@@ -1115,12 +1210,23 @@ class _MessageCard extends StatelessWidget {
                     future: EmojiTags.prefix(message.tags),
                     builder: (context, snapshot) {
                       final emoji = snapshot.data ?? '';
-                      return LText(
-                        emoji.isEmpty
-                            ? message.title!
-                            : '$emoji ${message.title!}',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold),
+                      final titleStyle = Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(
+                            fontSize: 15,
+                            height: 1.3,
+                            fontWeight: FontWeight.bold,
+                          );
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (emoji.isNotEmpty) ...[
+                            Text(emoji, style: titleStyle),
+                            const SizedBox(width: 4),
+                          ],
+                          Expanded(
+                            child: LText(message.title!, style: titleStyle),
+                          ),
+                        ],
                       );
                     },
                   ),
@@ -1148,6 +1254,8 @@ class _MessageCard extends StatelessWidget {
                 else
                   Linkify(
                     text: message.decodedMessage,
+                    style: Theme.of(context).textTheme.bodyMedium
+                        ?.copyWith(fontSize: 13, height: 1.5),
                     onOpen: (link) => onAction(
                       MessageAction(
                         id: 'message-link',
@@ -1290,52 +1398,55 @@ class _MessageBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
-      elevation: 8,
-      color: theme.colorScheme.surfaceContainerHigh,
+      elevation: 0,
+      color: theme.scaffoldBackgroundColor,
+      shape: Border(top: BorderSide(color: theme.colorScheme.outline)),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 6),
+          padding: const EdgeInsets.fromLTRB(8, 12, 16, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    key: const Key('expand-composer'),
+                    tooltip: tr(context, 'Expand composer'),
+                    onPressed: sending ? null : onExpand,
+                    icon: const Icon(Icons.keyboard_arrow_up),
+                  ),
                   Expanded(
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surface,
-                        borderRadius: BorderRadius.circular(18),
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: 1),
+                      duration: MediaQuery.disableAnimationsOf(context)
+                          ? Duration.zero
+                          : const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, value, child) => Transform.scale(
+                        alignment: Alignment.centerRight,
+                        scaleX: value,
+                        child: Opacity(opacity: value, child: child),
                       ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          IconButton(
-                            key: const Key('expand-composer'),
-                            tooltip: tr(context, 'Expand composer'),
-                            onPressed: sending ? null : onExpand,
-                            icon: const Icon(Icons.keyboard_arrow_up),
-                          ),
-                          Expanded(
-                            child: Semantics(
-                              container: true,
-                              explicitChildNodes: true,
-                              label: tr(context, 'Message'),
-                              child: TextField(
-                                key: const Key('quick-message-field'),
-                                controller: controller,
-                                enabled: !sending,
-                                minLines: 1,
-                                maxLines: 4,
-                                decoration: InputDecoration(
-                                  hintText: tr(context, 'Type a message here'),
-                                  border: InputBorder.none,
-                                ),
-                              ),
+                      child: Semantics(
+                        container: true,
+                        explicitChildNodes: true,
+                        label: tr(context, 'Message'),
+                        child: TextField(
+                          key: const Key('quick-message-field'),
+                          controller: controller,
+                          enabled: !sending,
+                          minLines: 1,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            hintText: tr(context, 'Type a message here'),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 12,
                             ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
                   ),
@@ -1358,7 +1469,7 @@ class _MessageBar extends StatelessWidget {
                                 ),
                               ),
                             )
-                          : const Icon(Icons.send),
+                          : const Icon(Icons.send, size: 20),
                     ),
                   ),
                 ],
@@ -1505,7 +1616,11 @@ class _PublishComposerState extends State<_PublishComposer> {
             onPressed: _sending ? null : () => Navigator.pop(context),
             icon: const Icon(Icons.close),
           ),
-          title: LText('Publish to $target'),
+          title: LText(
+            'Publish to $target',
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontSize: 20),
+          ),
           actions: [
             TextButton(
               key: const Key('publish-action'),
@@ -1519,7 +1634,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                     )
-                  : const LText('PUBLISH'),
+                  : LText('PUBLISH', style: monoLabel.copyWith(fontSize: 12)),
             ),
           ],
         ),
@@ -1532,8 +1647,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 controller: _title,
                 enabled: !_sending,
                 decoration: InputDecoration(
-                  labelText: tr(context, 'Title'),
-                  border: OutlineInputBorder(),
+                  labelText: tr(context, 'Title').toUpperCase(),
                 ),
               ),
               const SizedBox(height: 16),
@@ -1547,10 +1661,9 @@ class _PublishComposerState extends State<_PublishComposer> {
               maxLines: null,
               textCapitalization: TextCapitalization.sentences,
               decoration: InputDecoration(
-                labelText: tr(context, 'Message'),
+                labelText: tr(context, 'Message').toUpperCase(),
                 hintText: tr(context, 'Type a message here'),
                 alignLabelWithHint: true,
-                border: OutlineInputBorder(),
               ),
             ),
             if (_showTags) ...[
@@ -1560,9 +1673,8 @@ class _PublishComposerState extends State<_PublishComposer> {
                 controller: _tags,
                 enabled: !_sending,
                 decoration: InputDecoration(
-                  labelText: tr(context, 'Tags'),
+                  labelText: tr(context, 'Tags').toUpperCase(),
                   hintText: tr(context, 'warning, skull'),
-                  border: OutlineInputBorder(),
                 ),
               ),
             ],
@@ -1572,8 +1684,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 key: const Key('composer-priority-field'),
                 initialValue: _priority,
                 decoration: InputDecoration(
-                  labelText: tr(context, 'Priority'),
-                  border: OutlineInputBorder(),
+                  labelText: tr(context, 'Priority').toUpperCase(),
                 ),
                 items: [
                   for (final priority in const [5, 4, 3, 2, 1])
@@ -1804,9 +1915,8 @@ class _ComposerField extends StatelessWidget {
     enabled: enabled,
     keyboardType: keyboardType,
     decoration: InputDecoration(
-      labelText: tr(context, label),
+      labelText: tr(context, label).toUpperCase(),
       hintText: hint == null ? null : tr(context, hint!),
-      border: const OutlineInputBorder(),
     ),
   );
 }
