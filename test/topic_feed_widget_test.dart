@@ -16,6 +16,45 @@ import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:ntfy_flutter/topic_feed_screen.dart';
 
 void main() {
+  testWidgets('topic feed title uses the shared page-title typography', (
+    tester,
+  ) async {
+    const titleText =
+        'Production alerts for the primary infrastructure monitoring service';
+    final repository = _WidgetRepository(messageCount: 1);
+    repository.subscription = const Subscription(
+      id: 1,
+      url: 'https://ntfy.sh/alerts',
+      displayName: titleText,
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final title = tester
+        .widgetList<RichText>(find.byType(RichText))
+        .singleWhere((widget) => widget.text.toPlainText() == titleText);
+    expect(title.text.style?.fontFamily, 'HankenGrotesk');
+    expect(title.text.style?.fontSize, 28);
+    expect(title.text.style?.fontWeight, FontWeight.w700);
+    expect(title.maxLines, 1);
+    expect(title.overflow, TextOverflow.ellipsis);
+  });
+
   testWidgets('bottom message order shows oldest notification first', (
     tester,
   ) async {

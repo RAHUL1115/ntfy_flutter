@@ -761,8 +761,6 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
           onCollapsedTitleTap: _searching
               ? null
               : () => unawaited(_openSettings()),
-          expandedTitleSize: 20,
-          collapsedTitleSize: _searching ? 18 : 20,
           leading: IconButton(
             key: _searching ? const Key('topic-search-back') : null,
             tooltip: tr(context, 'Back'),
@@ -799,13 +797,15 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
               : Hero(
                   tag: 'topic-title-${_subscription.id}',
                   transitionOnUserGestures: true,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: LText(
-                      _subscription.displayName ??
-                          Uri.parse(_subscription.url).pathSegments.last,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontSize: 20,
+                  child: Builder(
+                    builder: (context) => Material(
+                      color: Colors.transparent,
+                      textStyle: DefaultTextStyle.of(context).style,
+                      child: LText(
+                        _subscription.displayName ??
+                            Uri.parse(_subscription.url).pathSegments.last,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ),

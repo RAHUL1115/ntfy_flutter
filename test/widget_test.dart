@@ -105,6 +105,45 @@ void main() {
     expect(tester.getSize(find.byType(DesignHeader)).height, 72);
   });
 
+  testWidgets('inertial scrolling finishes collapsing the header promptly', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: Scaffold(
+          body: CollapsibleDesignBody(
+            title: const Text('Page title'),
+            scrollController: scrollController,
+            child: ListView.builder(
+              controller: scrollController,
+              itemCount: 50,
+              itemBuilder: (_, index) => ListTile(title: Text('Row $index')),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (tester.getSize(find.byType(DesignHeader)).height == 72) {
+      await tester.drag(find.text('Page title'), const Offset(0, 300));
+      await tester.pumpAndSettle();
+    }
+
+    await tester.fling(find.text('Row 0'), const Offset(0, -80), 3000);
+    expect(
+      tester.getSize(find.byType(DesignHeader)).height,
+      inExclusiveRange(72, 268),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.pump(designMotionDuration);
+
+    expect(scrollController.offset, greaterThan(80));
+    expect(tester.getSize(find.byType(DesignHeader)).height, 72);
+  });
+
   testWidgets('settled header state is shared between pages', (tester) async {
     Widget page(String title) => Scaffold(
       body: CollapsibleDesignBody(

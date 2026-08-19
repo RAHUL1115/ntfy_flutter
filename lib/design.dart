@@ -609,8 +609,7 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
     if (next != _headerExtent) setState(() => _headerExtent = next);
   }
 
-  void _snap() {
-    final expanded = _progress >= 0.5;
+  void _settle(bool expanded) {
     final next = expanded
         ? designHeaderExpandedHeight
         : designHeaderCollapsedHeight;
@@ -624,6 +623,8 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
       _designHeadersExpanded.value = expanded;
     }
   }
+
+  void _snap() => _settle(_progress >= 0.5);
 
   void _onHeaderDragStart(DragStartDetails details) {
     setState(() {
@@ -693,6 +694,14 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
             notification.metrics.pixels <=
             designHeaderExpandedHeight - designHeaderCollapsedHeight;
         if (collapse || nearTop) _setExtent(_headerExtent + delta);
+      case ScrollUpdateNotification(:final scrollDelta)
+          when _dragging && scrollDelta != null:
+        if (scrollDelta > 0) {
+          _settle(false);
+        } else if (notification.metrics.pixels <=
+            designHeaderExpandedHeight - designHeaderCollapsedHeight) {
+          _settle(true);
+        }
       case OverscrollNotification(:final overscroll, dragDetails: != null):
         _setExtent(_headerExtent - overscroll);
       case ScrollEndNotification():
