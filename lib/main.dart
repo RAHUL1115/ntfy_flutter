@@ -555,33 +555,6 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     super.dispose();
   }
 
-  Future<bool> _confirmRemove(Subscription subscription) async {
-    final name = subscription.displayName ?? subscription.url;
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const LText('Unsubscribe from topic?'),
-            content: LText(
-              'Unsubscribe from $name and delete all locally stored notifications?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const LText('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.error,
-                ),
-                child: const LText('Unsubscribe'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-
   Future<void> _removeSubscription(Subscription subscription) async {
     setState(() {
       _subscriptions = _subscriptions
@@ -704,104 +677,12 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: LText(
-          'Subscribed topics',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        actions: [
-          if (_connections.any((item) => item.error != null))
-            IconButton(
-              key: const Key('connection-error'),
-              tooltip: tr(context, 'Connection error'),
-              onPressed: _showConnectionErrors,
-              icon: const Icon(Icons.cloud_off_outlined),
-            ),
-          if (_globalPolicy != null)
-            Hero(
-              tag: 'notification-bell',
-              transitionOnUserGestures: true,
-              child: Material(
-                color: Colors.transparent,
-                child: IconButton(
-                  key: const Key('global-notification-state'),
-                  tooltip: tr(
-                    context,
-                    _globalPolicy!.mutedUntilEpochSeconds == 0
-                        ? 'Notifications enabled'
-                        : 'Notifications muted; tap to enable',
-                  ),
-                  onPressed: _toggleGlobalNotifications,
-                  icon: Icon(
-                    _globalPolicy!.mutedUntilEpochSeconds == 0
-                        ? Icons.notifications_none
-                        : Icons.notifications_off_outlined,
-                  ),
-                ),
-              ),
-            ),
-          PopupMenuButton<_HomeAction>(
-            icon: const Hero(
-              tag: 'overflow-menu',
-              transitionOnUserGestures: true,
-              child: Material(
-                color: Colors.transparent,
-                child: Icon(Icons.more_vert),
-              ),
-            ),
-            position: PopupMenuPosition.under,
-            offset: const Offset(-8, -4),
-            constraints: const BoxConstraints.tightFor(width: 200),
-            onSelected: (action) => unawaited(_selectHomeAction(action)),
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: _HomeAction.settings,
-                height: 52,
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: LText('Settings'),
-              ),
-              PopupMenuDivider(height: 1),
-              PopupMenuItem(
-                value: _HomeAction.update,
-                height: 52,
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: LText(
-                        'Update app',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    SizedBox(width: 8),
-                    Icon(
-                      Icons.system_update_alt,
-                      size: 16,
-                      color: Color(0xff004f45),
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuDivider(height: 1),
-              PopupMenuItem(
-                value: _HomeAction.reportBug,
-                height: 52,
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: LText('Report a bug'),
-              ),
-              PopupMenuDivider(height: 1),
-              PopupMenuItem(
-                value: _HomeAction.docs,
-                height: 52,
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: LText('Documentation'),
-              ),
-            ],
-          ),
-        ],
+      body: CollapsibleDesignBody(
+        automaticallyImplyLeading: false,
+        title: const LText('Subscribed topics'),
+        actions: _homeActions(),
+        child: _buildBody(),
       ),
-      body: _buildBody(),
       floatingActionButton: Semantics(
         button: true,
         label: tr(context, 'Add subscription'),
@@ -825,143 +706,231 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     );
   }
 
+  List<Widget> _homeActions() => [
+    if (_connections.any((item) => item.error != null))
+      IconButton(
+        key: const Key('connection-error'),
+        tooltip: tr(context, 'Connection error'),
+        onPressed: _showConnectionErrors,
+        icon: const Icon(Icons.cloud_off_outlined),
+      ),
+    if (_globalPolicy != null)
+      Hero(
+        tag: 'notification-bell',
+        transitionOnUserGestures: true,
+        child: Material(
+          color: Colors.transparent,
+          child: IconButton(
+            key: const Key('global-notification-state'),
+            tooltip: tr(
+              context,
+              _globalPolicy!.mutedUntilEpochSeconds == 0
+                  ? 'Notifications enabled'
+                  : 'Notifications muted; tap to enable',
+            ),
+            onPressed: _toggleGlobalNotifications,
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  _globalPolicy!.mutedUntilEpochSeconds == 0
+                      ? Icons.notifications_none
+                      : Icons.notifications_off_outlined,
+                ),
+                if (_subscriptions?.any(
+                      (subscription) => subscription.unreadCount != 0,
+                    ) ==
+                    true)
+                  Positioned(
+                    top: -2,
+                    right: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    PopupMenuButton<_HomeAction>(
+      icon: const Hero(
+        tag: 'overflow-menu',
+        transitionOnUserGestures: true,
+        child: Material(
+          color: Colors.transparent,
+          child: Icon(Icons.more_vert),
+        ),
+      ),
+      position: PopupMenuPosition.under,
+      offset: const Offset(-8, -4),
+      constraints: const BoxConstraints.tightFor(width: 200),
+      onSelected: (action) => unawaited(_selectHomeAction(action)),
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: _HomeAction.settings,
+          height: 52,
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: LText('Settings'),
+        ),
+        PopupMenuDivider(height: 1),
+        PopupMenuItem(
+          value: _HomeAction.update,
+          height: 52,
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: LText(
+                  'Update app',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              SizedBox(width: 8),
+              Icon(Icons.system_update_alt, size: 16, color: Color(0xff004f45)),
+            ],
+          ),
+        ),
+        PopupMenuDivider(height: 1),
+        PopupMenuItem(
+          value: _HomeAction.reportBug,
+          height: 52,
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: LText('Report a bug'),
+        ),
+        PopupMenuDivider(height: 1),
+        PopupMenuItem(
+          value: _HomeAction.docs,
+          height: 52,
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: LText('Documentation'),
+        ),
+      ],
+    ),
+  ];
+
   Widget _buildBody() {
     final subscriptions = _subscriptions;
     if (subscriptions == null) {
       return const Center(child: CircularProgressIndicator());
     }
     if (subscriptions.isNotEmpty) {
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          final proportionalSpace = constraints.maxHeight * 0.22;
-          final topSpace = proportionalSpace < 150 ? 150.0 : proportionalSpace;
-          return Column(
-            children: [
-              SizedBox(height: topSpace),
-              Expanded(
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: Theme.of(context).colorScheme.outline),
+          ),
+        ),
+        child: RefreshIndicator(
+          onRefresh: _manualRefresh,
+          child: ListView.separated(
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: subscriptions.length,
+            separatorBuilder: (_, _) => const SizedBox.shrink(),
+            itemBuilder: (context, index) {
+              final subscription = subscriptions[index];
+              return Dismissible(
+                key: ValueKey('subscription-${subscription.id}'),
+                direction: DismissDirection.endToStart,
+                dismissThresholds: const {DismissDirection.endToStart: 0.7},
+                onDismissed: (_) => _removeSubscription(subscription),
+                background: const DesignDeleteBackground(),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     border: Border(
-                      top: BorderSide(
+                      bottom: BorderSide(
                         color: Theme.of(context).colorScheme.outline,
                       ),
                     ),
                   ),
-                  child: RefreshIndicator(
-                    onRefresh: _manualRefresh,
-                    child: ListView.separated(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      itemCount: subscriptions.length,
-                      separatorBuilder: (_, _) => const SizedBox.shrink(),
-                      itemBuilder: (context, index) {
-                        final subscription = subscriptions[index];
-                        return Dismissible(
-                          key: ValueKey('subscription-${subscription.id}'),
-                          direction: DismissDirection.horizontal,
-                          confirmDismiss: (_) => _confirmRemove(subscription),
-                          onDismissed: (_) => _removeSubscription(subscription),
-                          background: const _DeleteBackground(
-                            alignment: Alignment.centerLeft,
-                          ),
-                          secondaryBackground: const _DeleteBackground(
-                            alignment: Alignment.centerRight,
-                          ),
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              border: Border(
-                                bottom: BorderSide(
-                                  color: Theme.of(context).colorScheme.outline,
-                                ),
+                  child: InkWell(
+                    onTap: () => _openSubscription(subscription),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
+                        children: [
+                          Stack(
+                            clipBehavior: Clip.none,
+                            children: [
+                              const FramedTopicIcon(
+                                key: Key('ntfy-topic-icon'),
+                                size: 40,
                               ),
-                            ),
-                            child: InkWell(
-                              onTap: () => _openSubscription(subscription),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Row(
-                                  children: [
-                                    const FramedTopicIcon(
-                                      key: Key('ntfy-topic-icon'),
-                                      size: 40,
+                              if (subscription.unreadCount != 0)
+                                Positioned(
+                                  top: -6,
+                                  right: -6,
+                                  child: _UnreadBadge(subscription.unreadCount),
+                                ),
+                            ],
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Hero(
+                                  tag: 'topic-title-${subscription.id}',
+                                  transitionOnUserGestures: true,
+                                  child: Material(
+                                    color: Colors.transparent,
+                                    child: LText(
+                                      subscription.displayName ??
+                                          Uri.parse(subscription.url)
+                                              .pathSegments
+                                              .last,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            fontSize: 18,
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                     ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Hero(
-                                            tag:
-                                                'topic-title-${subscription.id}',
-                                            transitionOnUserGestures: true,
-                                            child: Material(
-                                              color: Colors.transparent,
-                                              child: LText(
-                                                subscription.displayName ??
-                                                    Uri.parse(subscription.url)
-                                                        .pathSegments
-                                                        .last,
-                                                style: Theme.of(context)
-                                                    .textTheme
-                                                    .titleMedium
-                                                    ?.copyWith(fontSize: 18),
-                                              ),
-                                            ),
-                                          ),
-                                          const SizedBox(height: 2),
-                                          LText(
-                                            _subscriptionSubtitle(
-                                              context,
-                                              subscription,
-                                            ),
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .bodySmall
-                                                ?.copyWith(
-                                                  fontSize: 13,
-                                                  color: Theme.of(context)
-                                                      .colorScheme
-                                                      .onSurfaceVariant,
-                                                ),
-                                          ),
-                                        ],
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                LText(
+                                  _subscriptionSubtitle(context, subscription),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontSize: 13,
+                                        color: Theme.of(context)
+                                            .colorScheme
+                                            .onSurface,
+                                        fontWeight:
+                                            subscription.unreadCount != 0
+                                            ? FontWeight.w600
+                                            : FontWeight.w400,
                                       ),
-                                    ),
-                                    if (_hasConnectionError(subscription) ||
-                                        subscription.unreadCount != 0) ...[
-                                      const SizedBox(width: 8),
-                                      if (_hasConnectionError(subscription))
-                                        Icon(
-                                          Icons.cloud_off_outlined,
-                                          color: Theme.of(context)
-                                              .colorScheme
-                                              .error,
-                                          semanticLabel: tr(
-                                            context,
-                                            'Connection error',
-                                          ),
-                                        ),
-                                      if (_hasConnectionError(subscription) &&
-                                          subscription.unreadCount != 0)
-                                        const SizedBox(width: 8),
-                                      if (subscription.unreadCount != 0)
-                                        _UnreadBadge(subscription.unreadCount),
-                                    ],
-                                  ],
                                 ),
-                              ),
+                              ],
                             ),
                           ),
-                        );
-                      },
+                          if (_hasConnectionError(subscription)) ...[
+                            const SizedBox(width: 8),
+                            Icon(
+                              Icons.cloud_off_outlined,
+                              color: Theme.of(context).colorScheme.error,
+                              semanticLabel: tr(context, 'Connection error'),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          );
-        },
+              );
+            },
+          ),
+        ),
       );
     }
     return Center(
@@ -1005,36 +974,23 @@ class _UnreadBadge extends StatelessWidget {
   Widget build(BuildContext context) => Semantics(
     label: tr(context, '$count unread notifications'),
     child: Container(
-      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary),
+      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary,
+        borderRadius: BorderRadius.circular(9),
+      ),
       child: LText(
         count > 99 ? '99+' : '$count',
-        style: Theme.of(context).textTheme.labelSmall
-            ?.copyWith(color: Theme.of(context).colorScheme.onPrimary),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.onPrimary,
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0,
+        ),
       ),
     ),
   );
-}
-
-class _DeleteBackground extends StatelessWidget {
-  const _DeleteBackground({required this.alignment});
-
-  final Alignment alignment;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.error,
-      child: Align(
-        alignment: alignment,
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24),
-          child: Icon(Icons.delete_outline, color: Colors.white),
-        ),
-      ),
-    );
-  }
 }
 
 class _SubscribeDialog extends StatefulWidget {

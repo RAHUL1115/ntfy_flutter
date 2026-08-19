@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 
 /// Design tokens for the "functional minimalist" mobile design in
 /// `docs/new_design`: flat surfaces, hairline outlines, square corners and a
@@ -27,6 +28,12 @@ const hardShadowOffset = Offset(0, 2);
 
 /// The primary actions use square corners throughout the app.
 const fabRadius = 0.0;
+
+const designHeaderExpandedHeight = 268.0;
+const designHeaderCollapsedHeight = 72.0;
+const designMotionDuration = Duration(milliseconds: 250);
+
+final _designHeadersExpanded = ValueNotifier(true);
 
 const _lightScheme = ColorScheme.light(
   primary: _forest,
@@ -357,3 +364,272 @@ ThemeData _theme(ColorScheme scheme, TextTheme text) {
 final lightTheme = designTheme(brightness: Brightness.light);
 
 final darkTheme = designTheme(brightness: Brightness.dark);
+
+class DesignDeleteBackground extends StatelessWidget {
+  const DesignDeleteBackground({this.margin = EdgeInsets.zero, super.key});
+
+  final EdgeInsetsGeometry margin;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: margin,
+    color: _ink,
+    child: Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: const Icon(Icons.delete_outline, color: _paper),
+      ),
+    ),
+  );
+}
+
+/// Large centered header that settles into the compact toolbar shown in the
+/// updated mobile design.
+class DesignHeader extends StatelessWidget {
+  const DesignHeader({
+    required this.progress,
+    required this.duration,
+    required this.title,
+    required this.actions,
+    this.leading,
+    this.expandedTitleSize = 28,
+    this.collapsedTitleSize = 22,
+    this.border = true,
+    super.key,
+  });
+
+  final double progress;
+  final Duration duration;
+  final Widget title;
+  final Widget? leading;
+  final List<Widget> actions;
+  final double expandedTitleSize;
+  final double collapsedTitleSize;
+  final bool border;
+
+  double _lerp(double collapsed, double expanded) =>
+      collapsed + ((expanded - collapsed) * progress);
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final animationDuration = reduceMotion ? Duration.zero : duration;
+    return AnimatedContainer(
+      duration: animationDuration,
+      curve: Curves.easeOutCubic,
+      height: _lerp(designHeaderCollapsedHeight, designHeaderExpandedHeight),
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        border: border
+            ? Border(bottom: BorderSide(color: theme.colorScheme.outline))
+            : null,
+      ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          if (leading != null)
+            Positioned(
+              left: 12,
+              top: 12,
+              width: 48,
+              height: 48,
+              child: leading!,
+            ),
+          AnimatedPositioned(
+            duration: animationDuration,
+            curve: Curves.easeOutCubic,
+            left: _lerp(leading == null ? 16 : 68, 16),
+            right: _lerp(16 + (actions.length * 48), 16),
+            top: _lerp(16, 110),
+            height: 40,
+            child: AnimatedDefaultTextStyle(
+              duration: animationDuration,
+              curve: Curves.easeOutCubic,
+              style: theme.textTheme.headlineSmall!.copyWith(
+                color: theme.colorScheme.onSurface,
+                fontSize: _lerp(collapsedTitleSize, expandedTitleSize),
+              ),
+              textAlign: progress >= 0.5 ? TextAlign.center : TextAlign.left,
+              child: AnimatedAlign(
+                duration: animationDuration,
+                curve: Curves.easeOutCubic,
+                alignment: Alignment.lerp(
+                  Alignment.centerLeft,
+                  Alignment.center,
+                  progress,
+                )!,
+                child: title,
+              ),
+            ),
+          ),
+          AnimatedPositioned(
+            duration: animationDuration,
+            curve: Curves.easeOutCubic,
+            right: 16,
+            top: _lerp(12, 208),
+            height: 48,
+            child: Row(mainAxisSize: MainAxisSize.min, children: actions),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class CollapsibleDesignBody extends StatefulWidget {
+  const CollapsibleDesignBody({
+    required this.title,
+    required this.child,
+    this.leading,
+    this.actions = const [],
+    this.automaticallyImplyLeading = true,
+    this.forceCollapsed = false,
+    this.expandedTitleSize = 28,
+    this.collapsedTitleSize = 22,
+    super.key,
+  });
+
+  final Widget title;
+  final Widget child;
+  final Widget? leading;
+  final List<Widget> actions;
+  final bool automaticallyImplyLeading;
+  final bool forceCollapsed;
+  final double expandedTitleSize;
+  final double collapsedTitleSize;
+
+  @override
+  State<CollapsibleDesignBody> createState() => _CollapsibleDesignBodyState();
+}
+
+class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
+  late double _headerExtent;
+  var _dragging = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _headerExtent = _designHeadersExpanded.value
+        ? designHeaderExpandedHeight
+        : designHeaderCollapsedHeight;
+    _designHeadersExpanded.addListener(_syncSettledState);
+  }
+
+  @override
+  void dispose() {
+    _designHeadersExpanded.removeListener(_syncSettledState);
+    super.dispose();
+  }
+
+  void _syncSettledState() {
+    if (_dragging) return;
+    _setExtent(
+      _designHeadersExpanded.value
+          ? designHeaderExpandedHeight
+          : designHeaderCollapsedHeight,
+    );
+  }
+
+  double get _progress =>
+      (_headerExtent - designHeaderCollapsedHeight) /
+      (designHeaderExpandedHeight - designHeaderCollapsedHeight);
+
+  void _setExtent(double extent) {
+    final next = extent.clamp(
+      designHeaderCollapsedHeight,
+      designHeaderExpandedHeight,
+    );
+    if (next != _headerExtent) setState(() => _headerExtent = next);
+  }
+
+  void _snap() {
+    final expanded = _progress >= 0.5;
+    final next = expanded
+        ? designHeaderExpandedHeight
+        : designHeaderCollapsedHeight;
+    if (_dragging || next != _headerExtent) {
+      setState(() {
+        _dragging = false;
+        _headerExtent = next;
+      });
+    }
+    if (_designHeadersExpanded.value != expanded) {
+      _designHeadersExpanded.value = expanded;
+    }
+  }
+
+  bool _onScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
+    switch (notification) {
+      case ScrollStartNotification(dragDetails: != null):
+        if (!_dragging) setState(() => _dragging = true);
+      case ScrollUpdateNotification(:final dragDetails)
+          when dragDetails != null:
+        final delta = dragDetails.delta.dy;
+        final collapse = delta < 0;
+        final nearTop =
+            notification.metrics.pixels <=
+            designHeaderExpandedHeight - designHeaderCollapsedHeight;
+        if (collapse || nearTop) _setExtent(_headerExtent + delta);
+      case OverscrollNotification(:final overscroll, dragDetails: != null):
+        _setExtent(_headerExtent - overscroll);
+      case ScrollEndNotification():
+        _snap();
+      case UserScrollNotification(direction: ScrollDirection.idle):
+        _snap();
+      default:
+        break;
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final leading =
+        widget.leading ??
+        (widget.automaticallyImplyLeading && Navigator.canPop(context)
+            ? IconButton(
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                onPressed: () => Navigator.maybePop(context),
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null);
+    return SafeArea(
+      bottom: false,
+      child: Column(
+        children: [
+          DesignHeader(
+            progress: widget.forceCollapsed ? 0 : _progress,
+            duration: _dragging ? Duration.zero : designMotionDuration,
+            title: widget.title,
+            leading: leading,
+            actions: widget.actions,
+            expandedTitleSize: widget.expandedTitleSize,
+            collapsedTitleSize: widget.collapsedTitleSize,
+          ),
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              child: ScrollConfiguration(
+                behavior: const _DesignScrollBehavior(),
+                child: widget.child,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesignScrollBehavior extends MaterialScrollBehavior {
+  const _DesignScrollBehavior();
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) =>
+      AlwaysScrollableScrollPhysics(parent: super.getScrollPhysics(context));
+}

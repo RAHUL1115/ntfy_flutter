@@ -732,25 +732,21 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         }
       },
       child: Scaffold(
-        appBar: AppBar(
-          shape: _searching
-              ? Border(bottom: BorderSide(color: theme.colorScheme.outline))
-              : null,
-          leading: _searching
-              ? IconButton(
-                  key: const Key('topic-search-back'),
-                  tooltip: tr(context, 'Back'),
-                  onPressed: () => setState(() {
+        body: CollapsibleDesignBody(
+          forceCollapsed: _searching,
+          expandedTitleSize: 20,
+          collapsedTitleSize: _searching ? 18 : 20,
+          leading: IconButton(
+            key: _searching ? const Key('topic-search-back') : null,
+            tooltip: tr(context, 'Back'),
+            onPressed: _searching
+                ? () => setState(() {
                     _searching = false;
                     _search.clear();
-                  }),
-                  icon: const Icon(Icons.arrow_back),
-                )
-              : IconButton(
-                  tooltip: tr(context, 'Back'),
-                  onPressed: () => Navigator.maybePop(context),
-                  icon: const Icon(Icons.arrow_back),
-                ),
+                  })
+                : () => Navigator.maybePop(context),
+            icon: const Icon(Icons.arrow_back),
+          ),
           title: _searching
               ? TextField(
                   key: const Key('topic-search-field'),
@@ -787,136 +783,32 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                     ),
                   ),
                 ),
-          actions: [
-            if (!_searching) ...[
-              IconButton(
-                key: const Key('topic-search-action'),
-                tooltip: tr(context, 'Search notifications'),
-                onPressed: () => setState(() => _searching = true),
-                icon: const Icon(Icons.search),
-              ),
-              if (_state.status == FeedStatus.error ||
-                  _state.status == FeedStatus.offline)
-                IconButton(
-                  key: const Key('connection-error-action'),
-                  tooltip: tr(context, 'Connection error'),
-                  onPressed: _showConnectionError,
-                  icon: const Icon(Icons.warning_amber),
-                ),
-              if (_notificationPolicy != null)
-                Hero(
-                  tag: 'notification-bell',
-                  transitionOnUserGestures: true,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: IconButton(
-                      key: const Key('topic-notification-state'),
-                      tooltip: tr(
-                        context,
-                        _notificationPolicy!.mutedUntilEpochSeconds == 0
-                            ? 'Notifications enabled'
-                            : 'Notifications muted',
-                      ),
-                      onPressed: _selectNotificationMute,
-                      icon: Icon(
-                        _notificationPolicy!.mutedUntilEpochSeconds == 0
-                            ? Icons.notifications_none
-                            : Icons.notifications_off_outlined,
-                      ),
+          actions: _searching ? const [] : _topicActions(),
+          child: Column(
+            children: [
+              if (!_searching && _state.status != FeedStatus.connected)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: LText(
+                    _statusLabel(_state),
+                    key: const Key('feed-status'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: monoLabel.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
                 ),
-              PopupMenuButton<_TopicAction>(
-                icon: const Hero(
-                  tag: 'overflow-menu',
-                  transitionOnUserGestures: true,
-                  child: Material(
-                    color: Colors.transparent,
-                    child: Icon(Icons.more_vert),
-                  ),
-                ),
-                position: PopupMenuPosition.under,
-                offset: const Offset(-8, -4),
-                constraints: const BoxConstraints.tightFor(width: 220),
-                onSelected: (action) {
-                  switch (action) {
-                    case _TopicAction.settings:
-                      unawaited(_openSettings());
-                    case _TopicAction.clear:
-                      unawaited(_confirmClear());
-                    case _TopicAction.unsubscribe:
-                      unawaited(_confirmUnsubscribe());
-                    case _TopicAction.test:
-                      unawaited(_sendTestNotification());
-                    case _TopicAction.copyUrl:
-                      unawaited(_copyTopicUrl());
-                  }
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: _TopicAction.settings,
-                    height: 52,
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: LText('Subscription settings'),
-                  ),
-                  const PopupMenuDivider(height: 1),
-                  PopupMenuItem(
-                    value: _TopicAction.clear,
-                    enabled: _state.messages.isNotEmpty,
-                    height: 52,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: const LText('Clear all notifications'),
-                  ),
-                  const PopupMenuDivider(height: 1),
-                  const PopupMenuItem(
-                    value: _TopicAction.test,
-                    height: 52,
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: LText('Send test notification'),
-                  ),
-                  if (Uri.parse(_subscription.url).host != 'ntfy.sh') ...[
-                    const PopupMenuDivider(height: 1),
-                    const PopupMenuItem(
-                      value: _TopicAction.copyUrl,
-                      height: 52,
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: LText('Copy topic URL'),
-                    ),
-                  ],
-                  if (widget.onUnsubscribe != null) ...[
-                    const PopupMenuDivider(height: 1),
-                    const PopupMenuItem(
-                      value: _TopicAction.unsubscribe,
-                      height: 52,
-                      padding: EdgeInsets.symmetric(horizontal: 16),
-                      child: LText('Unsubscribe'),
-                    ),
-                  ],
-                ],
+              Expanded(
+                child:
+                    _state.messages.isEmpty &&
+                        _state.status == FeedStatus.loading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _buildMessages(),
               ),
             ],
-          ],
-          bottom: _searching || _state.status == FeedStatus.connected
-              ? null
-              : PreferredSize(
-                  preferredSize: const Size.fromHeight(24),
-                  child: Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: LText(
-                      _statusLabel(_state),
-                      key: const Key('feed-status'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: monoLabel.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                ),
+          ),
         ),
-        body: _state.messages.isEmpty && _state.status == FeedStatus.loading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildMessages(),
         bottomNavigationBar: widget.showMessageBar
             ? _MessageBar(
                 controller: _quickMessage,
@@ -941,6 +833,114 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
       ),
     );
   }
+
+  List<Widget> _topicActions() => [
+    IconButton(
+      key: const Key('topic-search-action'),
+      tooltip: tr(context, 'Search notifications'),
+      onPressed: () => setState(() => _searching = true),
+      icon: const Icon(Icons.search),
+    ),
+    if (_state.status == FeedStatus.error ||
+        _state.status == FeedStatus.offline)
+      IconButton(
+        key: const Key('connection-error-action'),
+        tooltip: tr(context, 'Connection error'),
+        onPressed: _showConnectionError,
+        icon: const Icon(Icons.warning_amber),
+      ),
+    if (_notificationPolicy != null)
+      Hero(
+        tag: 'notification-bell',
+        transitionOnUserGestures: true,
+        child: Material(
+          color: Colors.transparent,
+          child: IconButton(
+            key: const Key('topic-notification-state'),
+            tooltip: tr(
+              context,
+              _notificationPolicy!.mutedUntilEpochSeconds == 0
+                  ? 'Notifications enabled'
+                  : 'Notifications muted',
+            ),
+            onPressed: _selectNotificationMute,
+            icon: Icon(
+              _notificationPolicy!.mutedUntilEpochSeconds == 0
+                  ? Icons.notifications_none
+                  : Icons.notifications_off_outlined,
+            ),
+          ),
+        ),
+      ),
+    PopupMenuButton<_TopicAction>(
+      icon: const Hero(
+        tag: 'overflow-menu',
+        transitionOnUserGestures: true,
+        child: Material(
+          color: Colors.transparent,
+          child: Icon(Icons.more_vert),
+        ),
+      ),
+      position: PopupMenuPosition.under,
+      offset: const Offset(-8, -4),
+      constraints: const BoxConstraints.tightFor(width: 220),
+      onSelected: (action) {
+        switch (action) {
+          case _TopicAction.settings:
+            unawaited(_openSettings());
+          case _TopicAction.clear:
+            unawaited(_confirmClear());
+          case _TopicAction.unsubscribe:
+            unawaited(_confirmUnsubscribe());
+          case _TopicAction.test:
+            unawaited(_sendTestNotification());
+          case _TopicAction.copyUrl:
+            unawaited(_copyTopicUrl());
+        }
+      },
+      itemBuilder: (_) => [
+        const PopupMenuItem(
+          value: _TopicAction.settings,
+          height: 52,
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: LText('Subscription settings'),
+        ),
+        const PopupMenuDivider(height: 1),
+        PopupMenuItem(
+          value: _TopicAction.clear,
+          enabled: _state.messages.isNotEmpty,
+          height: 52,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: const LText('Clear all notifications'),
+        ),
+        const PopupMenuDivider(height: 1),
+        const PopupMenuItem(
+          value: _TopicAction.test,
+          height: 52,
+          padding: EdgeInsets.symmetric(horizontal: 16),
+          child: LText('Send test notification'),
+        ),
+        if (Uri.parse(_subscription.url).host != 'ntfy.sh') ...[
+          const PopupMenuDivider(height: 1),
+          const PopupMenuItem(
+            value: _TopicAction.copyUrl,
+            height: 52,
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: LText('Copy topic URL'),
+          ),
+        ],
+        if (widget.onUnsubscribe != null) ...[
+          const PopupMenuDivider(height: 1),
+          const PopupMenuItem(
+            value: _TopicAction.unsubscribe,
+            height: 52,
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: LText('Unsubscribe'),
+          ),
+        ],
+      ],
+    ),
+  ];
 
   Widget _buildMessages() {
     if (_state.messages.isEmpty) {
@@ -1010,19 +1010,17 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     return ListView.builder(
       key: const Key('topic-feed-list'),
       controller: _scrollController,
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       itemCount: messages.length,
       itemBuilder: (_, index) {
         final message = messages[index];
         return Dismissible(
           key: ValueKey('dismiss-message-${message.localId}'),
-          direction: DismissDirection.horizontal,
+          direction: DismissDirection.endToStart,
+          dismissThresholds: const {DismissDirection.endToStart: 0.7},
           onDismissed: (_) => _deleteMessage(message),
-          background: const _MessageDeleteBackground(
-            alignment: Alignment.centerLeft,
-          ),
-          secondaryBackground: const _MessageDeleteBackground(
-            alignment: Alignment.centerRight,
+          background: const DesignDeleteBackground(
+            margin: EdgeInsets.symmetric(vertical: 6),
           ),
           child: _MessageCard(
             key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),
@@ -1044,26 +1042,6 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
 }
 
 enum _TopicAction { settings, clear, unsubscribe, test, copyUrl }
-
-class _MessageDeleteBackground extends StatelessWidget {
-  const _MessageDeleteBackground({required this.alignment});
-
-  final Alignment alignment;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.error,
-      child: Align(
-        alignment: alignment,
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 24),
-          child: Icon(Icons.delete_outline, color: Colors.white),
-        ),
-      ),
-    );
-  }
-}
 
 class _ScrollAnchor {
   const _ScrollAnchor(
@@ -1172,7 +1150,7 @@ class _MessageCard extends StatelessWidget {
       },
       child: Card(
         key: ValueKey('message-${message.eventId}'),
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         shape: Border(
           top: BorderSide(color: Theme.of(context).colorScheme.outline),
           left: BorderSide(color: Theme.of(context).colorScheme.outline),
@@ -1412,19 +1390,33 @@ class _MessageBar extends StatelessWidget {
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 12, 16, 12),
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  IconButton(
-                    key: const Key('expand-composer'),
-                    tooltip: tr(context, 'Expand composer'),
-                    onPressed: sending ? null : onExpand,
-                    icon: const Icon(Icons.keyboard_arrow_up),
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerLowest,
+                      border: Border.all(color: theme.colorScheme.outline),
+                    ),
+                    child: IconButton(
+                      key: const Key('expand-composer'),
+                      tooltip: tr(context, 'Expand composer'),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints.tightFor(
+                        width: 40,
+                        height: 40,
+                      ),
+                      onPressed: sending ? null : onExpand,
+                      icon: const Icon(Icons.add, size: 20),
+                    ),
                   ),
+                  const SizedBox(width: 8),
                   Expanded(
                     child: TweenAnimationBuilder<double>(
                       tween: Tween(begin: 0, end: 1),
@@ -1449,9 +1441,10 @@ class _MessageBar extends StatelessWidget {
                           maxLines: 4,
                           decoration: InputDecoration(
                             hintText: tr(context, 'Type a message here'),
+                            isDense: true,
                             contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
+                              horizontal: 18,
+                              vertical: 10,
                             ),
                           ),
                         ),
@@ -1459,25 +1452,36 @@ class _MessageBar extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
-                  SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: FloatingActionButton.small(
+                  Tooltip(
+                    message: tr(context, 'Send message'),
+                    child: Material(
                       key: const Key('quick-send'),
-                      tooltip: tr(context, 'Send message'),
-                      onPressed: sending ? null : onSend,
-                      child: sending
-                          ? Semantics(
-                              liveRegion: true,
-                              label: tr(context, 'Publishing message'),
-                              child: SizedBox.square(
-                                dimension: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          : const Icon(Icons.send, size: 20),
+                      color: theme.colorScheme.primary,
+                      child: InkWell(
+                        onTap: sending ? null : onSend,
+                        child: SizedBox.square(
+                          dimension: 44,
+                          child: Center(
+                            child: sending
+                                ? Semantics(
+                                    liveRegion: true,
+                                    label: tr(context, 'Publishing message'),
+                                    child: SizedBox.square(
+                                      dimension: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: theme.colorScheme.onPrimary,
+                                      ),
+                                    ),
+                                  )
+                                : Icon(
+                                    Icons.send,
+                                    size: 20,
+                                    color: theme.colorScheme.onPrimary,
+                                  ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -1579,6 +1583,7 @@ class _PublishComposerState extends State<_PublishComposer> {
       setState(() => _error = validationError);
       return;
     }
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() {
       _sending = true;
       _error = null;
@@ -1590,8 +1595,10 @@ class _PublishComposerState extends State<_PublishComposer> {
       if (mounted) {
         setState(() {
           _sending = false;
-          _error = error.toString();
+          _error = null;
         });
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: LText(error.toString())));
       }
     }
   }
@@ -1616,19 +1623,13 @@ class _PublishComposerState extends State<_PublishComposer> {
     return PopScope(
       canPop: !_sending,
       child: Scaffold(
-        appBar: AppBar(
-          backgroundColor: Theme.of(context).colorScheme.surface,
-          foregroundColor: Theme.of(context).colorScheme.onSurface,
+        body: CollapsibleDesignBody(
           leading: IconButton(
             tooltip: tr(context, 'Close composer'),
             onPressed: _sending ? null : () => Navigator.pop(context),
             icon: const Icon(Icons.close),
           ),
-          title: LText(
-            'Publish to $target',
-            style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontSize: 20),
-          ),
+          title: LText('Publish to $target'),
           actions: [
             TextButton(
               key: const Key('publish-action'),
@@ -1645,254 +1646,258 @@ class _PublishComposerState extends State<_PublishComposer> {
                   : LText('PUBLISH', style: monoLabel.copyWith(fontSize: 12)),
             ),
           ],
-        ),
-        body: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            if (_showTitle) ...[
+          collapsedTitleSize: 20,
+          expandedTitleSize: 24,
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (_showTitle) ...[
+                TextField(
+                  key: const Key('composer-title-field'),
+                  controller: _title,
+                  enabled: !_sending,
+                  decoration: InputDecoration(
+                    labelText: tr(context, 'Title').toUpperCase(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
               TextField(
-                key: const Key('composer-title-field'),
-                controller: _title,
+                key: const Key('composer-message-field'),
+                controller: _message,
                 enabled: !_sending,
+                autofocus: true,
+                minLines: 4,
+                maxLines: null,
+                textCapitalization: TextCapitalization.sentences,
                 decoration: InputDecoration(
-                  labelText: tr(context, 'Title').toUpperCase(),
+                  labelText: tr(context, 'Message').toUpperCase(),
+                  hintText: tr(context, 'Type a message here'),
+                  alignLabelWithHint: true,
                 ),
               ),
-              const SizedBox(height: 16),
-            ],
-            TextField(
-              key: const Key('composer-message-field'),
-              controller: _message,
-              enabled: !_sending,
-              autofocus: true,
-              minLines: 4,
-              maxLines: null,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                labelText: tr(context, 'Message').toUpperCase(),
-                hintText: tr(context, 'Type a message here'),
-                alignLabelWithHint: true,
-              ),
-            ),
-            if (_showTags) ...[
-              const SizedBox(height: 16),
-              TextField(
-                key: const Key('composer-tags-field'),
-                controller: _tags,
-                enabled: !_sending,
-                decoration: InputDecoration(
-                  labelText: tr(context, 'Tags').toUpperCase(),
-                  hintText: tr(context, 'warning, skull'),
-                ),
-              ),
-            ],
-            if (_showPriority) ...[
-              const SizedBox(height: 16),
-              DropdownButtonFormField<int>(
-                key: const Key('composer-priority-field'),
-                initialValue: _priority,
-                decoration: InputDecoration(
-                  labelText: tr(context, 'Priority').toUpperCase(),
-                ),
-                items: [
-                  for (final priority in const [5, 4, 3, 2, 1])
-                    DropdownMenuItem(
-                      value: priority,
-                      child: Row(
-                        children: [
-                          Icon(
-                            _priorityIcon(priority),
-                            color: priority >= 4 ? Colors.red : null,
-                          ),
-                          const SizedBox(width: 8),
-                          LText('$priority — ${_priorityName(priority)}'),
-                        ],
-                      ),
-                    ),
-                ],
-                onChanged: _sending
-                    ? null
-                    : (value) => setState(() => _priority = value ?? 3),
-              ),
-            ],
-            if (_showClick) ...[
-              const SizedBox(height: 16),
-              _ComposerField(
-                fieldKey: const Key('composer-click-field'),
-                controller: _click,
-                label: 'Click URL',
-                keyboardType: TextInputType.url,
-                enabled: !_sending,
-              ),
-            ],
-            if (_showEmail) ...[
-              const SizedBox(height: 16),
-              _ComposerField(
-                fieldKey: const Key('composer-email-field'),
-                controller: _email,
-                label: 'Email',
-                keyboardType: TextInputType.emailAddress,
-                enabled: !_sending,
-              ),
-            ],
-            if (_showDelay) ...[
-              const SizedBox(height: 16),
-              _ComposerField(
-                fieldKey: const Key('composer-delay-field'),
-                controller: _delay,
-                label: 'Delay',
-                hint: '30m, 2h, or tomorrow 10am',
-                enabled: !_sending,
-              ),
-            ],
-            if (_showCall) ...[
-              const SizedBox(height: 16),
-              _ComposerField(
-                fieldKey: const Key('composer-call-field'),
-                controller: _call,
-                label: 'Phone call',
-                keyboardType: TextInputType.phone,
-                enabled: !_sending,
-              ),
-            ],
-            if (_showAttachmentUrl) ...[
-              const SizedBox(height: 16),
-              _ComposerField(
-                fieldKey: const Key('composer-attachment-url-field'),
-                controller: _attachmentUrl,
-                label: 'Attach by URL',
-                keyboardType: TextInputType.url,
-                enabled: !_sending,
-              ),
-            ],
-            if (_attachmentFileName != null) ...[
-              const SizedBox(height: 12),
-              ListTile(
-                leading: const Icon(Icons.attach_file),
-                title: LText(_attachmentFileName!),
-                trailing: IconButton(
-                  tooltip: tr(context, 'Remove attachment'),
-                  onPressed: _sending
-                      ? null
-                      : () => setState(() {
-                          _attachmentFilePath = null;
-                          _attachmentFileName = null;
-                        }),
-                  icon: const Icon(Icons.close),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 4,
-              children: [
-                FilterChip(
-                  key: const Key('composer-markdown-chip'),
-                  label: const LText('Markdown'),
-                  selected: _markdown,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() => _markdown = selected),
-                ),
-                FilterChip(
-                  key: const Key('composer-title-chip'),
-                  label: const LText('Title'),
-                  selected: _showTitle,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() {
-                          _showTitle = selected;
-                          if (!selected) _title.clear();
-                        }),
-                ),
-                FilterChip(
-                  key: const Key('composer-tags-chip'),
-                  label: const LText('Tags'),
-                  selected: _showTags,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() {
-                          _showTags = selected;
-                          if (!selected) _tags.clear();
-                        }),
-                ),
-                FilterChip(
-                  key: const Key('composer-priority-chip'),
-                  label: const LText('Priority'),
-                  selected: _showPriority,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() {
-                          _showPriority = selected;
-                          if (!selected) _priority = 3;
-                        }),
-                ),
-                FilterChip(
-                  key: const Key('composer-click-chip'),
-                  label: const LText('Click URL'),
-                  selected: _showClick,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() => _showClick = selected),
-                ),
-                FilterChip(
-                  key: const Key('composer-email-chip'),
-                  label: const LText('Email'),
-                  selected: _showEmail,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() => _showEmail = selected),
-                ),
-                FilterChip(
-                  key: const Key('composer-delay-chip'),
-                  label: const LText('Delay'),
-                  selected: _showDelay,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() => _showDelay = selected),
-                ),
-                FilterChip(
-                  key: const Key('composer-attachment-url-chip'),
-                  label: const LText('Attach by URL'),
-                  selected: _showAttachmentUrl,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() {
-                          _showAttachmentUrl = selected;
-                          if (selected) {
-                            _attachmentFilePath = null;
-                            _attachmentFileName = null;
-                          }
-                        }),
-                ),
-                ActionChip(
-                  key: const Key('composer-attachment-file-chip'),
-                  label: const LText('Attach local file'),
-                  onPressed: _sending ? null : _pickAttachment,
-                ),
-                FilterChip(
-                  key: const Key('composer-call-chip'),
-                  label: const LText('Phone call'),
-                  selected: _showCall,
-                  onSelected: _sending
-                      ? null
-                      : (selected) => setState(() => _showCall = selected),
+              if (_showTags) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  key: const Key('composer-tags-field'),
+                  controller: _tags,
+                  enabled: !_sending,
+                  decoration: InputDecoration(
+                    labelText: tr(context, 'Tags').toUpperCase(),
+                    hintText: tr(context, 'warning, skull'),
+                  ),
                 ),
               ],
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 12),
-              Semantics(
-                liveRegion: true,
-                child: LText(
-                  _error!,
-                  key: const Key('composer-publish-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+              if (_showPriority) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  key: const Key('composer-priority-field'),
+                  initialValue: _priority,
+                  decoration: InputDecoration(
+                    labelText: tr(context, 'Priority').toUpperCase(),
+                  ),
+                  items: [
+                    for (final priority in const [5, 4, 3, 2, 1])
+                      DropdownMenuItem(
+                        value: priority,
+                        child: Row(
+                          children: [
+                            Icon(
+                              _priorityIcon(priority),
+                              color: priority >= 4 ? Colors.red : null,
+                            ),
+                            const SizedBox(width: 8),
+                            LText('$priority — ${_priorityName(priority)}'),
+                          ],
+                        ),
+                      ),
+                  ],
+                  onChanged: _sending
+                      ? null
+                      : (value) => setState(() => _priority = value ?? 3),
                 ),
+              ],
+              if (_showClick) ...[
+                const SizedBox(height: 16),
+                _ComposerField(
+                  fieldKey: const Key('composer-click-field'),
+                  controller: _click,
+                  label: 'Click URL',
+                  keyboardType: TextInputType.url,
+                  enabled: !_sending,
+                ),
+              ],
+              if (_showEmail) ...[
+                const SizedBox(height: 16),
+                _ComposerField(
+                  fieldKey: const Key('composer-email-field'),
+                  controller: _email,
+                  label: 'Email',
+                  keyboardType: TextInputType.emailAddress,
+                  enabled: !_sending,
+                ),
+              ],
+              if (_showDelay) ...[
+                const SizedBox(height: 16),
+                _ComposerField(
+                  fieldKey: const Key('composer-delay-field'),
+                  controller: _delay,
+                  label: 'Delay',
+                  hint: '30m, 2h, or tomorrow 10am',
+                  enabled: !_sending,
+                ),
+              ],
+              if (_showCall) ...[
+                const SizedBox(height: 16),
+                _ComposerField(
+                  fieldKey: const Key('composer-call-field'),
+                  controller: _call,
+                  label: 'Phone call',
+                  keyboardType: TextInputType.phone,
+                  enabled: !_sending,
+                ),
+              ],
+              if (_showAttachmentUrl) ...[
+                const SizedBox(height: 16),
+                _ComposerField(
+                  fieldKey: const Key('composer-attachment-url-field'),
+                  controller: _attachmentUrl,
+                  label: 'Attach by URL',
+                  keyboardType: TextInputType.url,
+                  enabled: !_sending,
+                ),
+              ],
+              if (_attachmentFileName != null) ...[
+                const SizedBox(height: 12),
+                ListTile(
+                  leading: const Icon(Icons.attach_file),
+                  title: LText(_attachmentFileName!),
+                  trailing: IconButton(
+                    tooltip: tr(context, 'Remove attachment'),
+                    onPressed: _sending
+                        ? null
+                        : () => setState(() {
+                            _attachmentFilePath = null;
+                            _attachmentFileName = null;
+                          }),
+                    icon: const Icon(Icons.close),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  FilterChip(
+                    key: const Key('composer-markdown-chip'),
+                    label: const LText('Markdown'),
+                    selected: _markdown,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() => _markdown = selected),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-title-chip'),
+                    label: const LText('Title'),
+                    selected: _showTitle,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() {
+                            _showTitle = selected;
+                            if (!selected) _title.clear();
+                          }),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-tags-chip'),
+                    label: const LText('Tags'),
+                    selected: _showTags,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() {
+                            _showTags = selected;
+                            if (!selected) _tags.clear();
+                          }),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-priority-chip'),
+                    label: const LText('Priority'),
+                    selected: _showPriority,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() {
+                            _showPriority = selected;
+                            if (!selected) _priority = 3;
+                          }),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-click-chip'),
+                    label: const LText('Click URL'),
+                    selected: _showClick,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() => _showClick = selected),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-email-chip'),
+                    label: const LText('Email'),
+                    selected: _showEmail,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() => _showEmail = selected),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-delay-chip'),
+                    label: const LText('Delay'),
+                    selected: _showDelay,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() => _showDelay = selected),
+                  ),
+                  FilterChip(
+                    key: const Key('composer-attachment-url-chip'),
+                    label: const LText('Attach by URL'),
+                    selected: _showAttachmentUrl,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() {
+                            _showAttachmentUrl = selected;
+                            if (selected) {
+                              _attachmentFilePath = null;
+                              _attachmentFileName = null;
+                            }
+                          }),
+                  ),
+                  ActionChip(
+                    key: const Key('composer-attachment-file-chip'),
+                    label: const LText('Attach local file'),
+                    onPressed: _sending ? null : _pickAttachment,
+                  ),
+                  FilterChip(
+                    key: const Key('composer-call-chip'),
+                    label: const LText('Phone call'),
+                    selected: _showCall,
+                    onSelected: _sending
+                        ? null
+                        : (selected) => setState(() => _showCall = selected),
+                  ),
+                ],
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Semantics(
+                  liveRegion: true,
+                  child: LText(
+                    _error!,
+                    key: const Key('composer-publish-error'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

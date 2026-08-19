@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/background_listening.dart';
+import 'package:ntfy_flutter/design.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/notifications.dart';
@@ -20,6 +21,81 @@ void main() {
   late _MemorySubscriptionRepository store;
 
   setUp(() => store = _MemorySubscriptionRepository());
+
+  testWidgets('design headers collapse on scroll and expand at the top', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: Scaffold(
+          body: CollapsibleDesignBody(
+            title: const Text('Page title'),
+            child: ListView.builder(
+              itemCount: 1,
+              itemBuilder: (_, index) => ListTile(title: Text('Row $index')),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.getSize(find.byType(DesignHeader)).height, 268);
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Row 0')),
+    );
+    await gesture.moveBy(const Offset(0, -20));
+    await tester.pump();
+    await gesture.moveBy(const Offset(0, -60));
+    await tester.pump();
+    final heldHeight = tester.getSize(find.byType(DesignHeader)).height;
+    expect(heldHeight, inExclusiveRange(72, 268));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getSize(find.byType(DesignHeader)).height, heldHeight);
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 268);
+
+    await tester.drag(find.text('Row 0'), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 72);
+    await tester.fling(find.byType(ListView), const Offset(0, 700), 1000);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 268);
+  });
+
+  testWidgets('settled header state is shared between pages', (tester) async {
+    Widget page(String title) => Scaffold(
+      body: CollapsibleDesignBody(
+        title: Text(title),
+        child: ListView(children: [ListTile(title: Text('$title row'))]),
+      ),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(theme: lightTheme, home: page('First page')),
+    );
+    await tester.drag(find.text('First page row'), const Offset(0, -300));
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 72);
+
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    unawaited(
+      navigator.push(
+        MaterialPageRoute<void>(builder: (_) => page('Next page')),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 72);
+
+    await tester.fling(find.text('Next page row'), const Offset(0, 700), 1000);
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 268);
+
+    navigator.pop();
+    await tester.pumpAndSettle();
+    expect(tester.getSize(find.byType(DesignHeader)).height, 268);
+  });
 
   testWidgets('starts on the empty subscriptions screen', (tester) async {
     await tester.pumpWidget(NtfyApp(store: store));
@@ -298,25 +374,20 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('swipe removal confirms before deleting local subscription', (
+  testWidgets('subscription deletion needs one deliberate swipe', (
     tester,
   ) async {
     await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
     await tester.pumpWidget(NtfyApp(store: store));
     await tester.pumpAndSettle();
 
-    await tester.drag(find.text('Production'), const Offset(-500, 0));
-    await tester.pumpAndSettle();
-    expect(find.text('Unsubscribe from topic?'), findsOneWidget);
-    expect(find.textContaining('delete all locally stored'), findsOneWidget);
-
-    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.drag(find.text('Production'), const Offset(-300, 0));
     await tester.pumpAndSettle();
     expect(find.text('Production'), findsOneWidget);
+    expect((await store.all()).single.displayName, 'Production');
+    expect(find.text('Unsubscribe from topic?'), findsNothing);
 
-    await tester.drag(find.text('Production'), const Offset(-500, 0));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Unsubscribe'));
+    await tester.drag(find.text('Production'), const Offset(-700, 0));
     await tester.pumpAndSettle();
 
     expect(await store.all(), isEmpty);

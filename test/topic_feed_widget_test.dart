@@ -548,7 +548,14 @@ void main() {
 
     await tester.drag(
       find.byKey(const ValueKey('message-id-1')),
-      const Offset(-500, 0),
+      const Offset(-300, 0),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Body 1'), findsOneWidget);
+
+    await tester.drag(
+      find.byKey(const ValueKey('message-id-1')),
+      const Offset(-700, 0),
     );
     await tester.pumpAndSettle();
 
@@ -797,7 +804,7 @@ void main() {
     await tester.tap(find.text('4 — High').last);
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('publish-action')));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('Server unavailable. Try again.'), findsOneWidget);
     expect(find.text('Keep this draft'), findsOneWidget);

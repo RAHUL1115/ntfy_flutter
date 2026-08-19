@@ -37,33 +37,35 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const LText('Settings')),
-    body: ListView(
-      children: [
-        if (policies != null)
-          _NotificationPolicySettings(
-            policies: policies!,
-            retention: retention,
-            trailingRows: [
-              _BackgroundListeningSettings(session: backgroundListening),
-            ],
-          )
-        else ...[
-          const _SectionHeader('Notifications'),
-          _SettingsPanel(
-            children: [
-              _RetentionSettings(retention: retention),
-              _BackgroundListeningSettings(session: backgroundListening),
-            ],
-          ),
+    body: CollapsibleDesignBody(
+      title: const LText('Settings'),
+      child: ListView(
+        children: [
+          if (policies != null)
+            _NotificationPolicySettings(
+              policies: policies!,
+              retention: retention,
+              trailingRows: [
+                _BackgroundListeningSettings(session: backgroundListening),
+              ],
+            )
+          else ...[
+            const _SectionHeader('Notifications'),
+            _SettingsPanel(
+              children: [
+                _RetentionSettings(retention: retention),
+                _BackgroundListeningSettings(session: backgroundListening),
+              ],
+            ),
+          ],
+          if (settings != null)
+            _AppSettingsPanel(
+              repository: settings!,
+              database: database,
+              onChanged: onSettingsChanged,
+            ),
         ],
-        if (settings != null)
-          _AppSettingsPanel(
-            repository: settings!,
-            database: database,
-            onChanged: onSettingsChanged,
-          ),
-      ],
+      ),
     ),
   );
 }
@@ -99,7 +101,7 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
 
   void _close() => Navigator.pop(context, _subscription);
 
-  Widget _backgroundDelivery() => SwitchListTile(
+  Widget _backgroundDelivery() => _SquareSwitchListTile(
     key: const Key('topic-background-listening'),
     title: const LText('Background delivery'),
     subtitle: const LText('Receive this topic while the app is not visible.'),
@@ -158,75 +160,73 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
       if (!didPop) _close();
     },
     child: Scaffold(
-      appBar: AppBar(
+      body: CollapsibleDesignBody(
         title: LText(
           _subscription.displayName ??
               Uri.parse(_subscription.url).pathSegments.last,
-          style: Theme.of(context).textTheme.titleLarge
-              ?.copyWith(fontSize: 22, fontWeight: FontWeight.w600),
         ),
-      ),
-      body: ListView(
-        children: [
-          const _SectionHeader('Notifications'),
-          if (widget.policies != null)
-            _NotificationPolicySettings(
-              policies: widget.policies!,
-              subscriptionId: _subscription.id,
-              retention: widget.retention,
-              showHeader: false,
-              showAppearanceHeader: true,
-              leadingRows: [
-                if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
-              ],
-            )
-          else
-            _SettingsPanel(
-              children: [
-                if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
-                _RetentionSettings(
-                  retention: widget.retention,
-                  subscriptionId: _subscription.id,
-                ),
-              ],
-            ),
-          if (widget.onRename != null) ...[
-            if (widget.policies == null) const _SectionHeader('Appearance'),
+        child: ListView(
+          children: [
+            const _SectionHeader('Notifications'),
+            if (widget.policies != null)
+              _NotificationPolicySettings(
+                policies: widget.policies!,
+                subscriptionId: _subscription.id,
+                retention: widget.retention,
+                showHeader: false,
+                showAppearanceHeader: true,
+                leadingRows: [
+                  if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+                ],
+              )
+            else
+              _SettingsPanel(
+                children: [
+                  if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+                  _RetentionSettings(
+                    retention: widget.retention,
+                    subscriptionId: _subscription.id,
+                  ),
+                ],
+              ),
+            if (widget.onRename != null) ...[
+              if (widget.policies == null) const _SectionHeader('Appearance'),
+              _SettingsPanel(
+                children: [
+                  ListTile(
+                    key: const Key('topic-display-name'),
+                    title: const LText('Display name'),
+                    subtitle: LText(
+                      _subscription.displayName ??
+                          Uri.parse(_subscription.url).pathSegments.last,
+                    ),
+                    onTap: () => _rename(context),
+                  ),
+                ],
+              ),
+            ],
+            const _SectionHeader('About'),
             _SettingsPanel(
               children: [
                 ListTile(
-                  key: const Key('topic-display-name'),
-                  title: const LText('Display name'),
-                  subtitle: LText(
-                    _subscription.displayName ??
-                        Uri.parse(_subscription.url).pathSegments.last,
-                  ),
-                  onTap: () => _rename(context),
+                  key: const Key('topic-url'),
+                  title: const LText('Topic URL'),
+                  subtitle: LText(_subscription.url),
+                  onTap: () async {
+                    await Clipboard.setData(
+                      ClipboardData(text: _subscription.url),
+                    );
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: LText('Topic URL copied.')),
+                      );
+                    }
+                  },
                 ),
               ],
             ),
           ],
-          const _SectionHeader('About'),
-          _SettingsPanel(
-            children: [
-              ListTile(
-                key: const Key('topic-url'),
-                title: const LText('Topic URL'),
-                subtitle: LText(_subscription.url),
-                onTap: () async {
-                  await Clipboard.setData(
-                    ClipboardData(text: _subscription.url),
-                  );
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: LText('Topic URL copied.')),
-                    );
-                  }
-                },
-              ),
-            ],
-          ),
-        ],
+        ),
       ),
     ),
   );
@@ -530,7 +530,7 @@ class _NotificationPolicySettingsState
             if (widget.retention != null)
               _RetentionSettings(retention: widget.retention!),
             if (widget.subscriptionId == null)
-              SwitchListTile(
+              _SquareSwitchListTile(
                 key: const Key('insistent-max-priority'),
                 title: const LText('Keep alerting for highest priority'),
                 subtitle: const LText(
@@ -826,7 +826,7 @@ class _BackgroundListeningSettingsState
     final enabled = _settings?.enabled ?? false;
     return _PanelRows(
       children: [
-        SwitchListTile(
+        _SquareSwitchListTile(
           key: const Key('background-listening-switch'),
           title: const LText('Background listening'),
           subtitle: const LText(
@@ -1147,7 +1147,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 if (value != null) await _save(settings.copyWith(theme: value));
               },
             ),
-            SwitchListTile(
+            _SquareSwitchListTile(
               key: const Key('dynamic-colors-setting'),
               title: const LText('Dynamic colors'),
               subtitle: const LText(
@@ -1157,7 +1157,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
               onChanged: (value) =>
                   _save(settings.copyWith(dynamicColors: value)),
             ),
-            SwitchListTile(
+            _SquareSwitchListTile(
               key: const Key('message-bar-setting'),
               title: const LText('Show message bar'),
               subtitle: const LText(
@@ -1172,7 +1172,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 ),
               ),
             ),
-            SwitchListTile(
+            _SquareSwitchListTile(
               key: const Key('new-messages-at-bottom-setting'),
               title: const LText('New messages at bottom'),
               subtitle: const LText(
@@ -1267,7 +1267,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 ),
               ),
             ),
-            SwitchListTile(
+            _SquareSwitchListTile(
               key: const Key('broadcasts-setting'),
               title: const LText('Broadcast messages'),
               subtitle: const LText(
@@ -1277,7 +1277,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
               onChanged: (value) =>
                   _save(settings.copyWith(broadcastsEnabled: value)),
             ),
-            SwitchListTile(
+            _SquareSwitchListTile(
               key: const Key('unified-push-setting'),
               title: const LText('Enable UnifiedPush'),
               subtitle: const LText(
@@ -1295,7 +1295,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 }
               },
             ),
-            SwitchListTile(
+            _SquareSwitchListTile(
               key: const Key('logging-setting'),
               title: const LText('Record logs'),
               subtitle: LText(
@@ -1427,30 +1427,32 @@ class _AccountsScreenState extends State<_AccountsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const LText('Users')),
     floatingActionButton: FloatingActionButton(
       onPressed: _add,
       child: const Icon(Icons.add),
     ),
-    body: _accounts == null
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            children: [
-              for (final account in _accounts!)
-                ListTile(
-                  title: LText(account.username),
-                  subtitle: LText(account.baseUrl),
-                  trailing: IconButton(
-                    tooltip: tr(context, 'Delete user'),
-                    onPressed: () async {
-                      await widget.repository.deleteAccount(account.baseUrl);
-                      await _load();
-                    },
-                    icon: const Icon(Icons.delete_outline),
+    body: CollapsibleDesignBody(
+      title: const LText('Users'),
+      child: _accounts == null
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              children: [
+                for (final account in _accounts!)
+                  ListTile(
+                    title: LText(account.username),
+                    subtitle: LText(account.baseUrl),
+                    trailing: IconButton(
+                      tooltip: tr(context, 'Delete user'),
+                      onPressed: () async {
+                        await widget.repository.deleteAccount(account.baseUrl);
+                        await _load();
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
+    ),
   );
 }
 
@@ -1538,33 +1540,35 @@ class _HeadersScreenState extends State<_HeadersScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const LText('Custom headers')),
     floatingActionButton: FloatingActionButton(
       onPressed: _add,
       child: const Icon(Icons.add),
     ),
-    body: _headers == null
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            children: [
-              for (final header in _headers!)
-                ListTile(
-                  title: LText(header.name),
-                  subtitle: LText(header.baseUrl),
-                  trailing: IconButton(
-                    tooltip: tr(context, 'Delete header'),
-                    onPressed: () async {
-                      await widget.repository.deleteHeader(
-                        header.baseUrl,
-                        header.name,
-                      );
-                      await _load();
-                    },
-                    icon: const Icon(Icons.delete_outline),
+    body: CollapsibleDesignBody(
+      title: const LText('Custom headers'),
+      child: _headers == null
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              children: [
+                for (final header in _headers!)
+                  ListTile(
+                    title: LText(header.name),
+                    subtitle: LText(header.baseUrl),
+                    trailing: IconButton(
+                      tooltip: tr(context, 'Delete header'),
+                      onPressed: () async {
+                        await widget.repository.deleteHeader(
+                          header.baseUrl,
+                          header.name,
+                        );
+                        await _load();
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
+    ),
   );
 }
 
@@ -1758,40 +1762,42 @@ class _CertificatesScreenState extends State<_CertificatesScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const LText('Certificates')),
     floatingActionButton: FloatingActionButton(
       onPressed: _add,
       child: const Icon(Icons.add),
     ),
-    body: _profiles == null
-        ? const Center(child: CircularProgressIndicator())
-        : ListView(
-            children: [
-              const ListTile(
-                title: LText('Trusted and client certificates'),
-                subtitle: LText(
-                  'Certificate files are applied only to their matching server.',
-                ),
-              ),
-              for (final profile in _profiles!)
-                ListTile(
-                  title: LText(profile.baseUrl),
+    body: CollapsibleDesignBody(
+      title: const LText('Certificates'),
+      child: _profiles == null
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              children: [
+                const ListTile(
+                  title: LText('Trusted and client certificates'),
                   subtitle: LText(
-                    profile.trustedCertificatePath ?? 'Client certificate',
-                  ),
-                  trailing: IconButton(
-                    tooltip: tr(context, 'Delete certificate'),
-                    onPressed: () async {
-                      await widget.repository.deleteCertificates(
-                        profile.baseUrl,
-                      );
-                      await _load();
-                    },
-                    icon: const Icon(Icons.delete_outline),
+                    'Certificate files are applied only to their matching server.',
                   ),
                 ),
-            ],
-          ),
+                for (final profile in _profiles!)
+                  ListTile(
+                    title: LText(profile.baseUrl),
+                    subtitle: LText(
+                      profile.trustedCertificatePath ?? 'Client certificate',
+                    ),
+                    trailing: IconButton(
+                      tooltip: tr(context, 'Delete certificate'),
+                      onPressed: () async {
+                        await widget.repository.deleteCertificates(
+                          profile.baseUrl,
+                        );
+                        await _load();
+                      },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ),
+              ],
+            ),
+    ),
   );
 }
 
@@ -1839,10 +1845,81 @@ class _SettingsPanel extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-      child: Material(
-        color: scheme.surfaceContainerLowest,
-        shape: RoundedRectangleBorder(side: BorderSide(color: scheme.outline)),
-        child: _PanelRows(children: children),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(color: scheme.shadow, offset: hardShadowOffset),
+          ],
+        ),
+        child: Material(
+          color: scheme.surfaceContainerLowest,
+          shape: RoundedRectangleBorder(
+            side: BorderSide(color: scheme.onSurface),
+          ),
+          child: _PanelRows(children: children),
+        ),
+      ),
+    );
+  }
+}
+
+class _SquareSwitchListTile extends SwitchListTile {
+  const _SquareSwitchListTile({
+    required super.title,
+    required super.value,
+    required super.onChanged,
+    super.subtitle,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    title: title,
+    subtitle: subtitle,
+    onTap: onChanged == null ? null : () => onChanged!(!value),
+    trailing: Semantics(
+      toggled: value,
+      enabled: onChanged != null,
+      child: _SquareSwitch(value: value, enabled: onChanged != null),
+    ),
+  );
+}
+
+class _SquareSwitch extends StatelessWidget {
+  const _SquareSwitch({required this.value, required this.enabled});
+
+  final bool value;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = enabled ? 1.0 : 0.45;
+    return Opacity(
+      opacity: active,
+      child: Container(
+        width: 40,
+        height: 22,
+        decoration: BoxDecoration(
+          color: value ? scheme.primary : scheme.outlineVariant,
+          border: Border.all(color: value ? scheme.primary : scheme.outline),
+        ),
+        child: AnimatedAlign(
+          duration: MediaQuery.disableAnimationsOf(context)
+              ? Duration.zero
+              : designMotionDuration,
+          curve: Curves.easeOutCubic,
+          alignment: value ? Alignment.centerRight : Alignment.centerLeft,
+          child: Container(
+            width: 18,
+            height: 18,
+            margin: const EdgeInsets.all(1),
+            decoration: BoxDecoration(
+              color: value ? scheme.onPrimary : scheme.surfaceContainerLowest,
+              border: Border.all(color: scheme.outline),
+            ),
+          ),
+        ),
       ),
     );
   }
