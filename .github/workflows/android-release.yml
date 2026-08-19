@@ -48,7 +48,8 @@ jobs:
 
       - run: flutter pub get
       - run: flutter analyze --no-pub
-      - run: flutter test --no-pub
+      # Pixel-exact golden baselines are generated and checked on Windows.
+      - run: flutter test --no-pub --exclude-tags golden
       - run: flutter build apk --release --no-pub
 
       - name: Verify APK signature

@@ -190,7 +190,7 @@ void main() {
       find.byType(Overlay),
       matchesGoldenFile('goldens/reference_app_settings.png'),
     );
-  });
+  }, tags: 'golden');
 }
 
 ThemeData _goldenTheme(ThemeData theme) => theme.copyWith(

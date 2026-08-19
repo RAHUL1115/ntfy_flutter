@@ -625,7 +625,7 @@ void main() {
       find.byType(SubscriptionsScreen),
       matchesGoldenFile('goldens/home_light_large_text.png'),
     );
-  });
+  }, tags: 'golden');
 }
 
 class _DelayedSubscriptionRepository
