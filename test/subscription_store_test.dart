@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/messages.dart';
+import 'package:ntfy_flutter/notification_policy.dart';
+import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -20,6 +22,184 @@ void main() {
     expect(saved.url, 'https://ntfy.sh/alerts');
     expect(saved.displayName, 'Production alerts');
     expect(await store.all(), [saved]);
+  });
+
+  test('registers and unregisters a stable UnifiedPush endpoint', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+
+    final first = await store.registerUnifiedPush(
+      application: 'com.example.connector',
+      token: 'connector-token',
+      baseUrl: 'https://ntfy.sh',
+    );
+    final repeated = await store.registerUnifiedPush(
+      application: 'com.example.connector',
+      token: 'connector-token',
+      baseUrl: 'https://ntfy.sh',
+    );
+
+    expect(repeated.endpoint, first.endpoint);
+    expect(
+      first.endpoint,
+      matches(r'^https://ntfy\.sh/up[A-Za-z0-9]{12}\?up=1$'),
+    );
+    final subscription = (await store.all()).single;
+    expect(subscription.unifiedPushApp, 'com.example.connector');
+    expect(subscription.unifiedPushToken, 'connector-token');
+    await expectLater(
+      store.registerUnifiedPush(
+        application: 'com.example.other',
+        token: 'connector-token',
+        baseUrl: 'https://ntfy.sh',
+      ),
+      throwsStateError,
+    );
+
+    final removed = await store.unregisterUnifiedPush('connector-token');
+    expect(removed?.application, 'com.example.connector');
+    expect(await store.all(), isEmpty);
+  });
+
+  test('renames locally and tracks unread messages until viewed', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final saved = await store.add(url: 'https://ntfy.sh/alerts');
+
+    await store.ingest(
+      saved.id,
+      IncomingMessage(
+        eventId: 'unread',
+        time: DateTime.utc(2026),
+        message: 'New alert',
+      ),
+    );
+    expect((await store.all()).single.unreadCount, 1);
+
+    final renamed = await store.rename(saved.id, '  Production  ');
+    expect(renamed.displayName, 'Production');
+    expect(renamed.url, saved.url);
+    expect(renamed.unreadCount, 1);
+
+    await store.markRead(saved.id);
+    expect((await store.all()).single.unreadCount, 0);
+    expect(
+      (await store.loadFeed(saved.id)).messages.single.message,
+      'New alert',
+    );
+  });
+
+  test(
+    'notification policy inherits globally and overrides per topic',
+    () async {
+      final store = await _openMemoryStore();
+      addTearDown(store.close);
+      final saved = await store.add(url: 'https://ntfy.sh/policy');
+      const global = NotificationPolicy(
+        mutedUntilEpochSeconds: 1234,
+        minimumPriority: 4,
+        insistentMaxPriority: true,
+        attachmentDownloadMaxBytes: 5 * 1024 * 1024,
+      );
+      await store.setGlobalNotificationPolicy(global);
+
+      expect(
+        (await store.loadNotificationPolicy(subscriptionId: saved.id))
+            .minimumPriority,
+        4,
+      );
+      const topic = NotificationPolicy(
+        minimumPriority: 2,
+        subscriptionIconPath: 'managed/icon.png',
+        dedicatedChannel: true,
+      );
+      await store.setTopicNotificationPolicy(saved.id, topic);
+      final overridden = await store.loadNotificationPolicy(
+        subscriptionId: saved.id,
+      );
+      expect(overridden.minimumPriority, 2);
+      expect(overridden.mutedUntilEpochSeconds, 0);
+      expect(overridden.subscriptionIconPath, 'managed/icon.png');
+      expect(overridden.dedicatedChannel, isTrue);
+
+      await store.setTopicNotificationPolicy(saved.id, null);
+      expect(
+        await store.loadNotificationPolicy(subscriptionId: saved.id),
+        isA<NotificationPolicy>()
+            .having((policy) => policy.minimumPriority, 'minimumPriority', 4)
+            .having(
+              (policy) => policy.insistentMaxPriority,
+              'insistentMaxPriority',
+              isTrue,
+            )
+            .having(
+              (policy) => policy.attachmentDownloadMaxBytes,
+              'attachmentDownloadMaxBytes',
+              5 * 1024 * 1024,
+            ),
+      );
+    },
+  );
+
+  test('per-topic policy fields keep independent global inheritance', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final saved = await store.add(url: 'https://ntfy.sh/policy-fields');
+    await store.setGlobalNotificationPolicy(
+      const NotificationPolicy(
+        mutedUntilEpochSeconds: 100,
+        minimumPriority: 4,
+        insistentMaxPriority: false,
+      ),
+    );
+    await store.setTopicNotificationPolicyOverrides(
+      saved.id,
+      const TopicNotificationPolicyOverrides(minimumPriority: 2),
+    );
+    await store.setGlobalNotificationPolicy(
+      const NotificationPolicy(
+        mutedUntilEpochSeconds: 200,
+        minimumPriority: 5,
+        insistentMaxPriority: true,
+      ),
+    );
+
+    final resolved = await store.loadNotificationPolicy(
+      subscriptionId: saved.id,
+    );
+    expect(resolved.minimumPriority, 2);
+    expect(resolved.mutedUntilEpochSeconds, 200);
+    expect(resolved.insistentMaxPriority, isTrue);
+    final overrides = await store.loadTopicNotificationPolicyOverrides(
+      saved.id,
+    );
+    expect(overrides.minimumPriority, 2);
+    expect(overrides.mutedUntilEpochSeconds, isNull);
+    expect(overrides.insistentMaxPriority, isNull);
+  });
+
+  test('per-topic background delivery persists independently', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final first = await store.add(url: 'https://ntfy.sh/first');
+    final second = await store.add(url: 'https://ntfy.sh/second');
+
+    final disabled = await store.setTopicBackgroundEnabled(first.id, false);
+
+    expect(disabled.backgroundEnabled, isFalse);
+    final subscriptions = await store.all();
+    expect(
+      subscriptions
+          .singleWhere((item) => item.id == first.id)
+          .backgroundEnabled,
+      isFalse,
+    );
+    expect(
+      subscriptions
+          .singleWhere((item) => item.id == second.id)
+          .backgroundEnabled,
+      isTrue,
+    );
   });
 
   test('rejects malformed and unsupported topic URLs', () async {
@@ -172,6 +352,19 @@ void main() {
         title: 'Later title',
         priority: 5,
         tags: const ['warning', 'server'],
+        sequenceId: 'deployment',
+        click: 'https://example.com/details',
+        icon: 'https://example.com/icon.png',
+        contentType: 'text/markdown',
+        encoding: 'base64',
+        actions: const [
+          MessageAction(
+            id: 'copy',
+            action: 'copy',
+            label: 'Copy',
+            value: 'value',
+          ),
+        ],
       ),
     );
     final earlier = await store.ingest(
@@ -188,7 +381,64 @@ void main() {
     expect(snapshot.messages.last.title, 'Later title');
     expect(snapshot.messages.last.priority, 5);
     expect(snapshot.messages.last.tags, ['warning', 'server']);
+    expect(snapshot.messages.last.sequenceId, 'deployment');
+    expect(snapshot.messages.last.click, 'https://example.com/details');
+    expect(snapshot.messages.last.icon, 'https://example.com/icon.png');
+    expect(snapshot.messages.last.contentType, 'text/markdown');
+    expect(snapshot.messages.last.encoding, 'base64');
+    expect(snapshot.messages.last.actions.single.value, 'value');
     expect(snapshot.cursor, 'earlier');
+  });
+
+  test('clear and delete events apply to every matching sequence', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final subscription = await store.add(url: 'https://ntfy.sh/updates');
+    for (final eventId in const ['first', 'second']) {
+      await store.ingest(
+        subscription.id,
+        IncomingMessage(
+          eventId: eventId,
+          sequenceId: 'deployment',
+          time: DateTime.utc(2026),
+          message: eventId,
+        ),
+      );
+    }
+    await store.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'other',
+        time: DateTime.utc(2026),
+        message: 'other',
+      ),
+    );
+
+    await store.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'clear-control',
+        sequenceId: 'deployment',
+        event: MessageEventType.clear,
+        time: DateTime.utc(2026),
+        message: '',
+      ),
+    );
+    expect((await store.all()).single.unreadCount, 1);
+
+    await store.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'delete-control',
+        sequenceId: 'deployment',
+        event: MessageEventType.delete,
+        time: DateTime.utc(2026),
+        message: '',
+      ),
+    );
+    final snapshot = await store.loadFeed(subscription.id);
+    expect(snapshot.messages.map((message) => message.eventId), ['other']);
+    expect(snapshot.cursor, 'delete-control');
   });
 
   test('deduplicates per subscription without moving the cursor', () async {
@@ -200,6 +450,11 @@ void main() {
       eventId: 'same-id',
       time: DateTime.utc(2026),
       message: 'Original',
+      attachment: const MessageAttachment(
+        name: 'report.txt',
+        url: 'https://ntfy.sh/file/report.txt',
+        size: 42,
+      ),
     );
 
     expect(await store.ingest(first.id, original), isNotNull);
@@ -218,6 +473,7 @@ void main() {
 
     final firstFeed = await store.loadFeed(first.id);
     expect(firstFeed.messages.single.message, 'Original');
+    expect(firstFeed.messages.single.attachment, original.attachment);
     expect(firstFeed.cursor, 'same-id');
     expect((await store.loadFeed(second.id)).messages, hasLength(1));
   });
@@ -278,7 +534,10 @@ void main() {
       (await store.loadFeed(second.id)).messages.single.message,
       'Second A',
     );
-    expect(await store.all(), [first, second]);
+    expect(
+      (await store.all()).map((item) => item.id),
+      unorderedEquals([first.id, second.id]),
+    );
   });
 
   test('removing a subscription cascades only its local history', () async {
@@ -299,9 +558,116 @@ void main() {
 
     await store.remove(first.id);
 
-    expect(await store.all(), [second]);
+    expect((await store.all()).single.id, second.id);
     await expectLater(store.loadFeed(first.id), throwsStateError);
     expect((await store.loadFeed(second.id)).messages, hasLength(1));
+  });
+
+  test('persists and removes a managed attachment file on clear', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final subscription = await store.add(url: 'https://ntfy.sh/files');
+    final saved = await store.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'file',
+        time: DateTime.utc(2026),
+        message: 'Report',
+        attachment: const MessageAttachment(
+          name: 'report.txt',
+          url: 'https://example.com/report.txt',
+        ),
+      ),
+    );
+    final directory = await Directory.systemTemp.createTemp('ntfy-file-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/report.txt');
+    await file.writeAsString('report');
+
+    await store.setAttachmentLocalPath(
+      subscription.id,
+      saved!.localId,
+      file.path,
+    );
+    expect(
+      (await store.loadFeed(subscription.id))
+          .messages
+          .single
+          .attachment!
+          .localPath,
+      file.path,
+    );
+
+    await store.clearMessages(subscription.id);
+    expect(await file.exists(), isFalse);
+  });
+
+  test('deleting one message removes its managed attachment file', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final subscription = await store.add(url: 'https://ntfy.sh/files');
+    final saved = await store.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'single-file',
+        time: DateTime.utc(2026),
+        message: 'Report',
+        attachment: const MessageAttachment(
+          name: 'report.txt',
+          url: 'https://example.com/report.txt',
+        ),
+      ),
+    );
+    final directory = await Directory.systemTemp.createTemp('ntfy-file-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/report.txt');
+    await file.writeAsString('report');
+    await store.setAttachmentLocalPath(
+      subscription.id,
+      saved!.localId,
+      file.path,
+    );
+
+    await store.deleteMessage(subscription.id, saved.localId);
+
+    expect(await file.exists(), isFalse);
+  });
+
+  test('retention cleanup removes managed attachment files', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final subscription = await store.add(url: 'https://ntfy.sh/files');
+    final saved = await store.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'expired-file',
+        time: DateTime.utc(2026),
+        message: 'Report',
+        attachment: const MessageAttachment(
+          name: 'report.txt',
+          url: 'https://example.com/report.txt',
+        ),
+      ),
+    );
+    final directory = await Directory.systemTemp.createTemp('ntfy-file-');
+    addTearDown(() => directory.delete(recursive: true));
+    final file = File('${directory.path}/report.txt');
+    await file.writeAsString('report');
+    await store.setAttachmentLocalPath(
+      subscription.id,
+      saved!.localId,
+      file.path,
+    );
+
+    await store.executeRetention(
+      SetGlobalRetention(
+        RetentionPeriod.oneHour,
+        now: DateTime.utc(2026, 1, 2),
+      ),
+    );
+
+    expect((await store.loadFeed(subscription.id)).messages, isEmpty);
+    expect(await file.exists(), isFalse);
   });
 
   test('recovers saved subscriptions after reopening the database', () async {
@@ -314,6 +680,14 @@ void main() {
       path: path,
     );
     final original = await firstStore.add(url: 'https://ntfy.sh/restart');
+    const policy = NotificationPolicy(
+      mutedUntilEpochSeconds: 4567,
+      minimumPriority: 4,
+      insistentMaxPriority: true,
+      subscriptionIconPath: 'managed/restart.png',
+      dedicatedChannel: true,
+    );
+    await firstStore.setTopicNotificationPolicy(original.id, policy);
     await firstStore.close();
 
     final reopenedStore = await SubscriptionStore.open(
@@ -323,6 +697,138 @@ void main() {
     addTearDown(reopenedStore.close);
 
     expect(await reopenedStore.all(), [original]);
+    expect(
+      await reopenedStore.loadNotificationPolicy(subscriptionId: original.id),
+      isA<NotificationPolicy>()
+          .having(
+            (value) => value.mutedUntilEpochSeconds,
+            'mutedUntilEpochSeconds',
+            4567,
+          )
+          .having((value) => value.minimumPriority, 'minimumPriority', 4)
+          .having(
+            (value) => value.subscriptionIconPath,
+            'subscriptionIconPath',
+            'managed/restart.png',
+          )
+          .having(
+            (value) => value.dedicatedChannel,
+            'dedicatedChannel',
+            isTrue,
+          ),
+    );
+  });
+
+  test(
+    'versioned backup restores subscriptions and notification history',
+    () async {
+      final source = await _openMemoryStore();
+      addTearDown(source.close);
+      final subscription = await source.add(
+        url: 'https://ntfy.sh/backup',
+        displayName: 'Backup topic',
+      );
+      await source.ingest(
+        subscription.id,
+        IncomingMessage(
+          eventId: 'backed-up',
+          time: DateTime.utc(2026),
+          message: 'Preserved',
+          tags: const ['warning'],
+          sequenceId: 'backup-sequence',
+          click: 'https://example.com',
+          icon: 'https://example.com/icon.png',
+          contentType: 'text/markdown',
+          encoding: 'base64',
+          actions: const [
+            MessageAction(
+              id: 'broadcast',
+              action: 'broadcast',
+              label: 'Send',
+              intent: 'com.example.ACTION',
+              extras: {'value': 'one'},
+            ),
+          ],
+        ),
+      );
+      final backup = await source.exportBackup();
+      final target = await SubscriptionStore.open(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(target.close);
+
+      await target.restoreBackup(backup);
+
+      final restored = (await target.all()).single;
+      expect(restored.displayName, 'Backup topic');
+      final message = (await target.loadFeed(restored.id)).messages.single;
+      expect(message.message, 'Preserved');
+      expect(message.sequenceId, 'backup-sequence');
+      expect(message.click, 'https://example.com');
+      expect(message.icon, 'https://example.com/icon.png');
+      expect(message.contentType, 'text/markdown');
+      expect(message.encoding, 'base64');
+      expect(message.actions.single.intent, 'com.example.ACTION');
+    },
+  );
+
+  test('invalid backup leaves the existing database untouched', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final original = await store.add(url: 'https://ntfy.sh/original');
+    final backup = await store.exportBackup();
+    final subscriptions = List<Object?>.of(backup['subscriptions']! as List);
+    backup['subscriptions'] = subscriptions;
+    subscriptions.add({'url': 'not a URL'});
+
+    await expectLater(store.restoreBackup(backup), throwsA(anything));
+
+    expect(await store.all(), [original]);
+  });
+
+  test('backup restore discards untrusted attachment file paths', () async {
+    final source = await _openMemoryStore();
+    addTearDown(source.close);
+    final subscription = await source.add(url: 'https://ntfy.sh/backup-file');
+    await source.ingest(
+      subscription.id,
+      IncomingMessage(
+        eventId: 'file',
+        time: DateTime.utc(2026),
+        message: 'File',
+        attachment: const MessageAttachment(
+          name: 'report.txt',
+          url: 'https://example.com/report.txt',
+        ),
+      ),
+    );
+    final backup = await source.exportBackup();
+    final messages = backup['messages']! as List;
+    final attachment = Map<String, Object?>.from(
+      (messages.single as Map)['attachment'] as Map,
+    );
+    final directory = await Directory.systemTemp.createTemp('ntfy-sentinel-');
+    addTearDown(() => directory.delete(recursive: true));
+    final sentinel = File('${directory.path}/keep.txt');
+    await sentinel.writeAsString('keep');
+    attachment['localPath'] = sentinel.path;
+    (messages.single as Map)['attachment'] = attachment;
+    final target = await _openMemoryStore();
+    addTearDown(target.close);
+
+    await target.restoreBackup(backup);
+    final restored = (await target.all()).single;
+    expect(
+      (await target.loadFeed(restored.id))
+          .messages
+          .single
+          .attachment!
+          .localPath,
+      isNull,
+    );
+    await target.clearMessages(restored.id);
+    expect(await sentinel.exists(), isTrue);
   });
 }
 

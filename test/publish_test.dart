@@ -69,6 +69,75 @@ void main() {
     );
   });
 
+  test('maps advanced fields and uploads a selected local file', () async {
+    final directory = await Directory.systemTemp.createTemp('ntfy_publish');
+    final file = File('${directory.path}/report.txt');
+    await file.writeAsString('attachment body');
+    addTearDown(() => directory.delete(recursive: true));
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    late HttpRequest received;
+    late String body;
+    final handled = Completer<void>();
+    server.listen((request) async {
+      received = request;
+      body = await utf8.decoder.bind(request).join();
+      request.response.statusCode = HttpStatus.noContent;
+      await request.response.close();
+      handled.complete();
+    });
+    addTearDown(() => server.close(force: true));
+
+    await HttpNtfyPublisher().publish(
+      'http://${server.address.host}:${server.port}/alerts',
+      PublishMessage(
+        message: 'See report\n✅',
+        markdown: true,
+        clickUrl: 'https://example.com/details',
+        email: 'ops@example.com',
+        delay: '30m',
+        phoneCall: '+15551234567',
+        attachmentFilePath: file.path,
+        attachmentFileName: 'report.txt',
+      ),
+    );
+    await handled.future;
+
+    expect(received.uri.queryParameters['markdown'], 'yes');
+    expect(
+      received.uri.queryParameters['click'],
+      'https://example.com/details',
+    );
+    expect(received.uri.queryParameters['email'], 'ops@example.com');
+    expect(received.uri.queryParameters['delay'], '30m');
+    expect(received.uri.queryParameters['call'], '+15551234567');
+    expect(received.uri.queryParameters['filename'], 'report.txt');
+    expect(received.uri.queryParameters['message'], r'See report\n✅');
+    expect(received.headers.value('Filename'), isNull);
+    expect(received.headers.value('Message'), isNull);
+    expect(body, 'attachment body');
+  });
+
+  test('rejects unavailable and oversized local attachments', () async {
+    final directory = await Directory.systemTemp.createTemp('ntfy_publish');
+    addTearDown(() => directory.delete(recursive: true));
+    final oversized = File('${directory.path}/oversized.bin');
+    await oversized.openWrite().close();
+    await oversized.open(mode: FileMode.write).then((file) async {
+      await file.truncate(HttpNtfyPublisher.maxAttachmentBytes + 1);
+      await file.close();
+    });
+
+    for (final path in ['${directory.path}/missing.bin', oversized.path]) {
+      await expectLater(
+        HttpNtfyPublisher().publish(
+          'http://127.0.0.1:1/alerts',
+          PublishMessage(message: 'attachment', attachmentFilePath: path),
+        ),
+        throwsA(isA<PublishException>()),
+      );
+    }
+  });
+
   test('surfaces server JSON errors and actionable status errors', () async {
     Future<String> failure(int status, String body) async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);

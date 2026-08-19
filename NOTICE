@@ -1,0 +1,11 @@
+ntfy Flutter
+
+This product includes translated strings and Android behavior adapted from
+ntfy Android (https://github.com/binwiederhier/ntfy-android), created by
+Philipp C. Heckel and contributors and licensed under the Apache License 2.0.
+
+The generated assets/i18n.json file is derived from ntfy Android string
+resources. Android notification channels, vibration patterns, and broadcast
+contracts are implemented for compatibility with that project.
+
+The Apache License 2.0 is included in the repository LICENSE file.

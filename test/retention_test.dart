@@ -164,7 +164,7 @@ void main() {
       final snapshot = await store.loadFeed(subscription.id);
       expect(snapshot.messages, isEmpty);
       expect(snapshot.cursor, 'expired-cursor');
-      expect(await store.all(), [subscription]);
+      expect((await store.all()).single.id, subscription.id);
     },
   );
 
@@ -231,7 +231,7 @@ void main() {
         for (var index = 0; index < 10; index++) 'current-$index',
       ]);
       expect(snapshot.cursor, 'current-9');
-      expect(await store.all(), [subscription]);
+      expect((await store.all()).single.id, subscription.id);
     },
   );
 

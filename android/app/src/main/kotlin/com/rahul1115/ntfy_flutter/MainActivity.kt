@@ -1,6 +1,7 @@
 package com.rahul1115.ntfy_flutter
 
 import android.Manifest
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -12,9 +13,16 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val notificationPermissionResults = mutableListOf<MethodChannel.Result>()
+    private lateinit var messageNotificationChannel: MethodChannel
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        messageNotificationChannel = MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            MessageNotificationAdapter.CHANNEL_NAME,
+        )
+        MessageNotificationAdapter.configure(messageNotificationChannel, this, handlesTaps = true)
+        MessageNotificationAdapter.recordLaunchIntent(intent)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.rahul1115.ntfy_flutter/background_host",
@@ -41,11 +49,45 @@ class MainActivity : FlutterActivity() {
                         "running" to BackgroundListenerService.isRunning,
                         "notificationPresent" to
                             BackgroundListenerService.notificationPresent(),
+                        "notificationsAllowed" to
+                            MessageNotificationAdapter.notificationsAllowed(this),
+                        "messageNotifications" to
+                            MessageNotificationAdapter.activeNotifications(this),
+                        "connections" to BackgroundListenerService.connectionStates(),
                     ),
                 )
                 else -> result.notImplemented()
             }
         }
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "com.rahul1115.ntfy_flutter/system_settings",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setUnifiedPushEnabled" -> {
+                    val enabled = call.arguments as? Boolean ?: false
+                    setUnifiedPushEnabled(enabled)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        MessageNotificationAdapter.recordLaunchIntent(intent)
+    }
+
+    override fun onDestroy() {
+        MessageNotificationAdapter.setVisibleSubscription(null)
+        notificationPermissionResults.toList().forEach { it.success(false) }
+        notificationPermissionResults.clear()
+        if (::messageNotificationChannel.isInitialized) {
+            MessageNotificationAdapter.detach(messageNotificationChannel)
+        }
+        super.onDestroy()
     }
 
     override fun onRequestPermissionsResult(
@@ -94,6 +136,19 @@ class MainActivity : FlutterActivity() {
             )
         }
         startActivity(intent)
+    }
+
+    private fun setUnifiedPushEnabled(enabled: Boolean) {
+        val state = if (enabled) {
+            PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        } else {
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        }
+        packageManager.setComponentEnabledSetting(
+            ComponentName(this, UnifiedPushReceiver::class.java),
+            state,
+            PackageManager.DONT_KILL_APP,
+        )
     }
 
     companion object {

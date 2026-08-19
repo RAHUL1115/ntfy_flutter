@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/messages.dart';
+import 'package:ntfy_flutter/notifications.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 
@@ -18,6 +19,13 @@ void main() {
         'title': 'Server',
         'priority': 5,
         'tags': ['warning', 'computer'],
+        'attachment': {
+          'name': 'report.txt',
+          'url': 'https://ntfy.sh/file/report.txt',
+          'type': 'text/plain',
+          'size': 42,
+          'expires': 1700003600,
+        },
       }),
       'https://ntfy.sh/alerts',
     );
@@ -31,6 +39,8 @@ void main() {
     expect(parsed?.title, 'Server');
     expect(parsed?.priority, 5);
     expect(parsed?.tags, ['warning', 'computer']);
+    expect(parsed?.attachment?.name, 'report.txt');
+    expect(parsed?.attachment?.size, 42);
 
     for (final line in [
       '{bad json',
@@ -55,6 +65,66 @@ void main() {
       expect(parseNtfyLine(line, 'https://ntfy.sh/alerts'), isNull);
     }
   });
+
+  test(
+    'parser preserves advanced fields, decodes bytes, and accepts controls',
+    () {
+      final parsed = parseNtfyLine(
+        jsonEncode({
+          'event': 'message',
+          'topic': 'alerts',
+          'id': 'update-2',
+          'sequence_id': 'deploy',
+          'time': 1700000000,
+          'message': base64Encode(utf8.encode('Hello 🐧')),
+          'encoding': 'base64',
+          'content_type': 'text/markdown',
+          'click': 'https://example.com/details',
+          'icon': 'https://example.com/icon.png',
+          'actions': [
+            {
+              'id': 'open',
+              'action': 'view',
+              'label': 'Open',
+              'clear': true,
+              'url': 'https://example.com',
+              'headers': {'X-Test': 'one'},
+              'extras': {'result': 'ok'},
+            },
+          ],
+        }),
+        'https://ntfy.sh/alerts',
+      );
+
+      expect(parsed?.sequenceId, 'deploy');
+      expect(parsed?.decodedMessage, 'Hello 🐧');
+      expect(parsed?.messageBytes, utf8.encode('Hello 🐧'));
+      expect(parsed?.contentType, 'text/markdown');
+      expect(parsed?.click, 'https://example.com/details');
+      expect(parsed?.icon, 'https://example.com/icon.png');
+      expect(parsed?.actions.single.label, 'Open');
+      expect(parsed?.actions.single.headers, {'X-Test': 'one'});
+
+      for (final entry in const [
+        ('message_clear', MessageEventType.clear),
+        ('message_delete', MessageEventType.delete),
+      ]) {
+        final control = parseNtfyLine(
+          jsonEncode({
+            'event': entry.$1,
+            'topic': 'alerts',
+            'id': 'control',
+            'sequence_id': 'deploy',
+            'time': 1700000001,
+          }),
+          'https://ntfy.sh/alerts',
+        );
+        expect(control?.event, entry.$2);
+        expect(control?.sequenceId, 'deploy');
+        expect(control?.message, '');
+      }
+    },
+  );
 
   test(
     'controller tolerates bad lines, dedupes, and reconnects from cursor',
@@ -176,6 +246,25 @@ void main() {
     },
   );
 
+  test('visible runtime alerts when it wins backgrounded ingestion', () async {
+    final platform = _RecordingNotificationPlatform();
+    final controller = TopicFeedController(
+      repository: _MemoryMessageRepository(),
+      subscription: const Subscription(id: 7, url: 'https://ntfy.sh/alerts'),
+      client: _SequenceClient([
+        [_line('winner', 1, 'Won by visible runtime')],
+      ]),
+      notifications: MessageNotificationSession(platform),
+      retryDelays: const [Duration(days: 1)],
+    );
+    addTearDown(controller.close);
+
+    unawaited(controller.start());
+    await _until(() => platform.requests.length == 1);
+
+    expect(platform.requests.single.eventId, 'winner');
+  });
+
   test('refresh cannot resurrect a concurrently deleted message', () async {
     final repository = _DelayedLoadRepository()
       ..messages.add(
@@ -237,6 +326,31 @@ class _EofClient implements NtfyStreamClient {
     connections++;
     return FeedConnection(lines: const Stream.empty());
   }
+}
+
+class _RecordingNotificationPlatform implements NotificationPlatform {
+  final requests = <MessageNotification>[];
+
+  @override
+  Stream<NotificationTarget> get taps => const Stream.empty();
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<bool> show(MessageNotification notification) async {
+    requests.add(notification);
+    return true;
+  }
+
+  @override
+  Future<bool> isSubscriptionVisible(int subscriptionId) async => false;
+
+  @override
+  Future<void> setVisibleSubscription(int? subscriptionId) async {}
+
+  @override
+  Future<void> close() async {}
 }
 
 class _SequenceClient implements NtfyStreamClient, AbortableNtfyStreamClient {

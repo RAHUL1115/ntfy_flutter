@@ -2,9 +2,15 @@ import 'dart:async';
 import 'dart:ui' show DartPluginRegistrant;
 
 import 'package:flutter/services.dart';
+
+import 'attachments.dart';
+import 'app_settings.dart';
+import 'messages.dart';
+
 import 'package:flutter/widgets.dart';
 
 import 'retention.dart';
+import 'notifications.dart';
 import 'subscriptions.dart';
 import 'topic_feed.dart';
 
@@ -21,10 +27,63 @@ class BackgroundListeningHostStatus {
   const BackgroundListeningHostStatus({
     required this.running,
     required this.notificationPresent,
+    this.notificationsAllowed = true,
+    this.messageNotifications = const [],
+    this.connections = const [],
   });
 
   final bool running;
   final bool notificationPresent;
+  final bool notificationsAllowed;
+  final List<MessageNotificationStatus> messageNotifications;
+  final List<BackgroundServerConnectionStatus> connections;
+}
+
+enum BackgroundConnectionState { connecting, connected }
+
+class BackgroundServerConnectionStatus {
+  const BackgroundServerConnectionStatus({
+    required this.server,
+    required this.state,
+    this.error,
+    this.nextRetryEpochMilliseconds,
+  });
+
+  final String server;
+  final BackgroundConnectionState state;
+  final String? error;
+  final int? nextRetryEpochMilliseconds;
+
+  Map<String, Object?> toJson() => {
+    'server': server,
+    'state': state.name,
+    'error': error,
+    'nextRetryEpochMilliseconds': nextRetryEpochMilliseconds,
+  };
+
+  @override
+  bool operator ==(Object other) =>
+      other is BackgroundServerConnectionStatus &&
+      other.server == server &&
+      other.state == state &&
+      other.error == error &&
+      other.nextRetryEpochMilliseconds == nextRetryEpochMilliseconds;
+
+  @override
+  int get hashCode =>
+      Object.hash(server, state, error, nextRetryEpochMilliseconds);
+}
+
+class MessageNotificationStatus {
+  const MessageNotificationStatus({
+    required this.subscriptionId,
+    required this.eventId,
+    required this.channelId,
+  });
+
+  final int subscriptionId;
+  final String eventId;
+  final String channelId;
 }
 
 abstract interface class BackgroundListeningHost {
@@ -61,9 +120,52 @@ class AndroidBackgroundListeningHost implements BackgroundListeningHost {
   @override
   Future<BackgroundListeningHostStatus> status() async {
     final value = await _channel.invokeMapMethod<String, Object?>('status');
+    final notifications = value?['messageNotifications'];
+    final connections = value?['connections'];
     return BackgroundListeningHostStatus(
       running: value?['running'] == true,
       notificationPresent: value?['notificationPresent'] == true,
+      notificationsAllowed: value?['notificationsAllowed'] != false,
+      messageNotifications: notifications is List
+          ? notifications
+                .map((item) {
+                  if (item is! Map) return null;
+                  final subscriptionId = item['subscriptionId'];
+                  final eventId = item['eventId'];
+                  final channelId = item['channelId'];
+                  if (subscriptionId is! int ||
+                      eventId is! String ||
+                      channelId is! String) {
+                    return null;
+                  }
+                  return MessageNotificationStatus(
+                    subscriptionId: subscriptionId,
+                    eventId: eventId,
+                    channelId: channelId,
+                  );
+                })
+                .whereType<MessageNotificationStatus>()
+                .toList()
+          : const [],
+      connections: connections is List
+          ? connections
+                .map((item) {
+                  if (item is! Map || item['server'] is! String) return null;
+                  final state = BackgroundConnectionState.values
+                      .where((value) => value.name == item['state'])
+                      .firstOrNull;
+                  if (state == null) return null;
+                  return BackgroundServerConnectionStatus(
+                    server: item['server']! as String,
+                    state: state,
+                    error: item['error'] as String?,
+                    nextRetryEpochMilliseconds:
+                        item['nextRetryEpochMilliseconds'] as int?,
+                  );
+                })
+                .whereType<BackgroundServerConnectionStatus>()
+                .toList()
+          : const [],
     );
   }
 }
@@ -98,6 +200,8 @@ class BackgroundListeningSession {
       BackgroundListeningSettings(
         enabled: await _repository.loadBackgroundListening(),
       );
+
+  Future<BackgroundListeningHostStatus> status() => _host.status();
 
   Future<void> start() async {
     if (_started) return;
@@ -152,6 +256,43 @@ typedef BackgroundStreamClientFactory = NtfyStreamClient Function(
   String serverKey,
 );
 
+class ConnectionAlertSession {
+  ConnectionAlertSession({
+    required this.loadThresholdSeconds,
+    required this.platform,
+    Future<void> Function(Duration)? delay,
+  }) : _delay = delay ?? Future<void>.delayed;
+
+  final Future<int> Function() loadThresholdSeconds;
+  final ConnectionAlertPlatform platform;
+  final Future<void> Function(Duration) _delay;
+  final _episodes = <String, Object>{};
+  bool _closed = false;
+
+  Future<void> disconnected(String server) async {
+    if (_closed || _episodes.containsKey(server)) return;
+    final threshold = await loadThresholdSeconds();
+    if (_closed || threshold <= 0) return;
+    final episode = Object();
+    _episodes[server] = episode;
+    await _delay(Duration(seconds: threshold));
+    if (_closed || !identical(_episodes[server], episode)) return;
+    await platform.show(server, threshold);
+  }
+
+  Future<void> connected(String server) async {
+    if (_episodes.remove(server) != null && _episodes.isEmpty) {
+      await platform.clear();
+    }
+  }
+
+  Future<void> close() async {
+    _closed = true;
+    _episodes.clear();
+    await platform.clear();
+  }
+}
+
 const _backgroundRetryDelays = <Duration>[
   Duration(seconds: 1),
   Duration(seconds: 2),
@@ -165,13 +306,33 @@ class BackgroundListenerRuntime {
   BackgroundListenerRuntime(
     this._repository, {
     BackgroundStreamClientFactory? clientFactory,
+    this.notifications,
+    this.attachments,
+    this.connectionAlerts,
+    this.connectionStatusChanged,
+    this.unifiedPushMessage,
     RetentionSession? retention,
-  }) : _clientFactory = clientFactory ?? ((_) => HttpNtfyStreamClient()),
-       _retention = retention ?? RetentionSession(_repository);
+    List<Duration>? retryDelays,
+  }) : assert(retryDelays == null || retryDelays.isNotEmpty),
+       _clientFactory = clientFactory ?? ((_) => HttpNtfyStreamClient()),
+       _retention = retention ?? RetentionSession(_repository),
+       _retryDelays = List.unmodifiable(retryDelays ?? _backgroundRetryDelays);
 
   final AppRepository _repository;
   final BackgroundStreamClientFactory _clientFactory;
+  final MessageNotificationSession? notifications;
+  final AttachmentAutoDownloader? attachments;
+  final ConnectionAlertSession? connectionAlerts;
+  final Future<void> Function(BackgroundServerConnectionStatus status)?
+  connectionStatusChanged;
+  final Future<void> Function(
+    String application,
+    String token,
+    List<int> message,
+  )?
+  unifiedPushMessage;
   final RetentionSession _retention;
+  final List<Duration> _retryDelays;
   final _listeners = <(String, String?), _BackgroundServerListener>{};
   Future<void> _operationTail = Future<void>.value();
   bool _started = false;
@@ -191,22 +352,45 @@ class BackgroundListenerRuntime {
     return _refresh();
   });
 
-  Future<bool> _refresh() async {
-    if (!await _repository.loadBackgroundListening()) {
-      await _closeListeners();
-      return false;
-    }
+  Future<bool> reconnect() => _serialize(() async {
+    if (_closed) return false;
+    await _closeListeners();
+    return _refresh();
+  });
 
-    final grouped = <(String, String?), List<Subscription>>{};
+  Future<bool> _refresh() async {
+    final regularListening = await _repository.loadBackgroundListening();
+
+    final byCursor = <(String, String?), List<Subscription>>{};
     for (final subscription in await _repository.all()) {
+      if (!regularListening && subscription.unifiedPushApp == null) continue;
+      if (!subscription.backgroundEnabled) continue;
       final snapshot = await _repository.loadFeed(subscription.id);
-      final key = (_serverKey(subscription.url), snapshot.cursor);
-      grouped.putIfAbsent(key, () => []).add(subscription);
+      byCursor
+          .putIfAbsent((
+            _serverKey(subscription.url),
+            snapshot.cursor,
+          ), () => [])
+          .add(subscription);
+    }
+    final grouped =
+        <
+          (String, String),
+          ({List<Subscription> subscriptions, String? cursor})
+        >{};
+    for (final entry in byCursor.entries) {
+      final subscriptions = entry.value.toList()
+        ..sort((left, right) => left.id.compareTo(right.id));
+      final ids = subscriptions.map((item) => item.id).join(',');
+      grouped[(entry.key.$1, ids)] = (
+        subscriptions: subscriptions,
+        cursor: entry.key.$2,
+      );
     }
 
     for (final entry in _listeners.entries.toList()) {
       final desired = grouped[entry.key];
-      if (desired == null || !entry.value.matches(desired)) {
+      if (desired == null || !entry.value.matches(desired.subscriptions)) {
         _listeners.remove(entry.key);
         await entry.value.close();
       }
@@ -215,9 +399,15 @@ class BackgroundListenerRuntime {
       if (_listeners.containsKey(entry.key)) continue;
       final listener = _BackgroundServerListener(
         repository: _repository,
-        subscriptions: entry.value,
+        subscriptions: entry.value.subscriptions,
         client: _clientFactory(entry.key.$1),
-        cursor: entry.key.$2,
+        cursor: entry.value.cursor,
+        notifications: notifications,
+        attachments: attachments,
+        connectionAlerts: connectionAlerts,
+        connectionStatusChanged: connectionStatusChanged,
+        unifiedPushMessage: unifiedPushMessage,
+        retryDelays: _retryDelays,
       );
       _listeners[entry.key] = listener;
       unawaited(listener.start());
@@ -229,6 +419,7 @@ class BackgroundListenerRuntime {
     if (_closed) return;
     _closed = true;
     await _closeListeners();
+    await connectionAlerts?.close();
     await _retention.close();
   });
 
@@ -251,6 +442,12 @@ class _BackgroundServerListener {
     required List<Subscription> subscriptions,
     required this.client,
     required this._cursor,
+    required this.notifications,
+    required this.attachments,
+    required this.connectionAlerts,
+    required this.connectionStatusChanged,
+    required this.unifiedPushMessage,
+    required this.retryDelays,
   }) : subscriptions = List.unmodifiable(subscriptions),
        _subscriptionIds = subscriptions.map((item) => item.id).toSet(),
        _byTopic = {
@@ -262,6 +459,18 @@ class _BackgroundServerListener {
   final AppRepository repository;
   final List<Subscription> subscriptions;
   final NtfyStreamClient client;
+  final MessageNotificationSession? notifications;
+  final AttachmentAutoDownloader? attachments;
+  final ConnectionAlertSession? connectionAlerts;
+  final Future<void> Function(BackgroundServerConnectionStatus status)?
+  connectionStatusChanged;
+  final Future<void> Function(
+    String application,
+    String token,
+    List<int> message,
+  )?
+  unifiedPushMessage;
+  final List<Duration> retryDelays;
   final Set<int> _subscriptionIds;
   final Map<String, Subscription> _byTopic;
   final String topicUrl;
@@ -280,11 +489,26 @@ class _BackgroundServerListener {
   Future<void> start() => _runFuture ??= _run();
 
   Future<void> _run() async {
+    final server = _serverKey(topicUrl);
     while (!_closed) {
       FeedConnection? connection;
+      Object? failure;
       try {
+        await connectionStatusChanged?.call(
+          BackgroundServerConnectionStatus(
+            server: server,
+            state: BackgroundConnectionState.connecting,
+          ),
+        );
         connection = await client.connect(topicUrl: topicUrl, cursor: _cursor);
         if (_closed) return;
+        await connectionAlerts?.connected(server);
+        await connectionStatusChanged?.call(
+          BackgroundServerConnectionStatus(
+            server: server,
+            state: BackgroundConnectionState.connected,
+          ),
+        );
         _connection = connection;
         await for (final line in connection.lines) {
           if (_closed) return;
@@ -292,14 +516,32 @@ class _BackgroundServerListener {
           final event = parseNtfyMessageEvent(line);
           final subscription = event == null ? null : _byTopic[event.topic];
           if (event == null || subscription == null) continue;
-          final stored = await repository.ingest(
-            subscription.id,
-            event.message,
-          );
+          var stored = await repository.ingest(subscription.id, event.message);
           _cursor = event.message.eventId;
-          if (stored != null) _retryIndex = 0;
+          if (event.message.event != MessageEventType.message) {
+            await notifications?.handleControl(subscription, event.message);
+          }
+          if (stored != null) {
+            _retryIndex = 0;
+            final application = subscription.unifiedPushApp;
+            final token = subscription.unifiedPushToken;
+            if (application != null && token != null) {
+              await unifiedPushMessage?.call(
+                application,
+                token,
+                event.message.messageBytes,
+              );
+            } else {
+              await notifications?.show(subscription, stored);
+              final downloader = attachments;
+              if (downloader != null) {
+                unawaited(downloader.process(subscription, stored));
+              }
+            }
+          }
         }
-      } catch (_) {
+      } catch (error) {
+        failure = error;
         if (_closed) return;
       } finally {
         if (identical(_connection, connection)) _connection = null;
@@ -309,17 +551,27 @@ class _BackgroundServerListener {
           // Closing a failed socket is best effort.
         }
       }
-      if (!_closed) await _waitForRetry();
+      if (!_closed) {
+        unawaited(connectionAlerts?.disconnected(server));
+        final delay = retryDelays[_retryIndex.clamp(0, retryDelays.length - 1)];
+        await connectionStatusChanged?.call(
+          BackgroundServerConnectionStatus(
+            server: server,
+            state: BackgroundConnectionState.connecting,
+            error: failure?.toString() ?? 'Connection closed.',
+            nextRetryEpochMilliseconds: DateTime.now()
+                .add(delay)
+                .millisecondsSinceEpoch,
+          ),
+        );
+        await _waitForRetry();
+      }
     }
   }
 
   Future<void> _waitForRetry() async {
-    final delay =
-        _backgroundRetryDelays[_retryIndex.clamp(
-          0,
-          _backgroundRetryDelays.length - 1,
-        )];
-    if (_retryIndex < _backgroundRetryDelays.length - 1) _retryIndex++;
+    final delay = retryDelays[_retryIndex.clamp(0, retryDelays.length - 1)];
+    if (_retryIndex < retryDelays.length - 1) _retryIndex++;
     final completer = Completer<void>();
     _retryCompleter = completer;
     _retryTimer = Timer(delay, () {
@@ -346,6 +598,14 @@ class _BackgroundServerListener {
     if (client case final AbortableNtfyStreamClient abortable) {
       await abortable.abort();
     }
+    await connectionAlerts?.connected(_serverKey(topicUrl));
+    await connectionStatusChanged?.call(
+      BackgroundServerConnectionStatus(
+        server: _serverKey(topicUrl),
+        state: BackgroundConnectionState.connected,
+        error: '__removed__',
+      ),
+    );
     await _runFuture;
   }
 }
@@ -384,14 +644,73 @@ Future<void> backgroundMain() async {
 
   try {
     final store = await SubscriptionStore.open();
-    final runtime = BackgroundListenerRuntime(store);
+    final settings = await AppSettingsStore.open();
+    late final BackgroundListenerRuntime runtime;
+    runtime = BackgroundListenerRuntime(
+      store,
+      clientFactory: (_) => HttpNtfyStreamClient(profiles: settings),
+      notifications: MessageNotificationSession(
+        AndroidNotificationPlatform(),
+        policies: store,
+        broadcastsEnabled: () async =>
+            (await settings.loadSettings()).broadcastsEnabled,
+        iconLoader: (uri) =>
+            AttachmentService(profiles: settings)
+                .fetchBytes(uri, maxBytes: 1024 * 1024),
+      ),
+      attachments: AttachmentAutoDownloader(
+        policies: store,
+        repository: store,
+        service: AttachmentService(profiles: settings),
+      ),
+      connectionAlerts: ConnectionAlertSession(
+        loadThresholdSeconds: () async =>
+            (await settings.loadSettings()).connectionAlertSeconds,
+        platform: const AndroidConnectionAlertPlatform(),
+      ),
+      connectionStatusChanged: (status) =>
+          channel.invokeMethod('connectionState', status.toJson()),
+      unifiedPushMessage: (application, token, message) => channel.invokeMethod(
+        'unifiedPushMessage',
+        {'application': application, 'token': token, 'message': message},
+      ),
+    );
     channel.setMethodCallHandler((call) async {
       switch (call.method) {
         case 'refresh':
           return runtime.refresh();
+        case 'reconnect':
+          return runtime.reconnect();
         case 'stop':
           await runtime.stop();
           return true;
+        case 'unifiedPushRegister':
+          final arguments = Map<String, Object?>.from(call.arguments as Map);
+          final registration = await store.registerUnifiedPush(
+            application: arguments['application']! as String,
+            token: arguments['token']! as String,
+            baseUrl: (await settings.loadSettings()).defaultServer,
+          );
+          final active = await runtime.refresh();
+          return {
+            'application': registration.application,
+            'token': registration.token,
+            'endpoint': registration.endpoint,
+            'active': active,
+          };
+        case 'unifiedPushUnregister':
+          final arguments = Map<String, Object?>.from(call.arguments as Map);
+          final registration = await store.unregisterUnifiedPush(
+            arguments['token']! as String,
+          );
+          final active = await runtime.refresh();
+          return registration == null
+              ? {'active': active}
+              : {
+                  'application': registration.application,
+                  'token': registration.token,
+                  'active': active,
+                };
         default:
           throw MissingPluginException('Unknown method ${call.method}');
       }

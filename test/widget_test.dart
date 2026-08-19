@@ -3,11 +3,16 @@ import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/background_listening.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
+import 'package:ntfy_flutter/notifications.dart';
+import 'package:ntfy_flutter/ntfy_topic_icon.dart';
 import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
+import 'package:ntfy_flutter/topic_feed.dart';
+import 'package:ntfy_flutter/topic_feed_screen.dart';
 
 void main() {
   late _MemorySubscriptionRepository store;
@@ -23,8 +28,70 @@ void main() {
       find.text("It looks like you don't have any subscriptions yet."),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.sms_outlined), findsOneWidget);
+    expect(find.byType(NtfyTopicIcon), findsOneWidget);
     expect(find.byIcon(Icons.add), findsOneWidget);
+  });
+
+  testWidgets('home polling stops while the app is backgrounded', (
+    tester,
+  ) async {
+    await tester.pumpWidget(NtfyApp(store: store));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pump();
+    expect(store.allCalls, greaterThan(1));
+
+    for (final state in const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pump();
+    final pausedCalls = store.allCalls;
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pump();
+    expect(store.allCalls, pausedCalls);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+    expect(store.allCalls, greaterThan(pausedCalls));
+  });
+
+  testWidgets('shows connection errors and retries from the topic list', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/alerts');
+    store.backgroundListening = true;
+    final host = _RecordingBackgroundHost(
+      statusValue: const BackgroundListeningHostStatus(
+        running: true,
+        notificationPresent: true,
+        connections: [
+          BackgroundServerConnectionStatus(
+            server: 'https://ntfy.sh/',
+            state: BackgroundConnectionState.connecting,
+            error: 'Connection refused.',
+          ),
+        ],
+      ),
+    );
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        backgroundListening: BackgroundListeningSession(store, host),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byKey(const Key('connection-error')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('connection-error')));
+    await tester.pumpAndSettle();
+    expect(find.text('Connection refused.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(FilledButton, 'Retry now'));
+    await tester.pumpAndSettle();
+    expect(host.starts, 2);
   });
 
   testWidgets('opens the subscription dialog from the add button', (
@@ -39,7 +106,7 @@ void main() {
     expect(find.byType(TextField), findsNWidgets(2));
     expect(
       tester
-          .widget<TextButton>(find.widgetWithText(TextButton, 'Subscribe'))
+          .widget<TextButton>(find.widgetWithText(TextButton, 'SUBSCRIBE'))
           .onPressed,
       isNull,
     );
@@ -58,15 +125,97 @@ void main() {
       find.byKey(const Key('display-name-field')),
       '  Production  ',
     );
-    await tester.tap(find.widgetWithText(TextButton, 'Subscribe'));
+    await tester.tap(find.widgetWithText(TextButton, 'SUBSCRIBE'));
     await tester.pumpAndSettle();
 
     expect(find.text('Production'), findsOneWidget);
-    expect(find.text('https://ntfy.sh/alerts'), findsOneWidget);
+    expect(find.textContaining('https://ntfy.sh/alerts'), findsOneWidget);
     expect(
       find.text("It looks like you don't have any subscriptions yet."),
       findsNothing,
     );
+  });
+
+  testWidgets('topic settings rename only the local display name', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: store,
+            subscription: subscription,
+            client: _SilentClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Production'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subscription settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('topic-display-name')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('display-name-field')),
+      'Critical alerts',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Critical alerts'), findsOneWidget);
+    expect((await store.all()).single.url, 'https://ntfy.sh/alerts');
+  });
+
+  testWidgets('UnifiedPush rows show their app and open settings', (
+    tester,
+  ) async {
+    store.seedUnifiedPush();
+    await tester.pumpWidget(NtfyApp(store: store));
+    await tester.pumpAndSettle();
+
+    expect(find.text('com.example.client (UnifiedPush)'), findsOneWidget);
+    await tester.tap(find.text('UnifiedPush topic'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('topic-display-name')), findsOneWidget);
+  });
+
+  testWidgets('topic rows expose and clear unread activity', (tester) async {
+    store.seedUnread(count: 3);
+    final semantics = tester.ensureSemantics();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: store,
+            subscription: subscription,
+            client: _SilentClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.bySemanticsLabel(RegExp('3 unread notifications')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Production'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect((await store.all()).single.unreadCount, 0);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+    semantics.dispose();
   });
 
   testWidgets('swipe removal confirms before deleting local subscription', (
@@ -111,7 +260,7 @@ void main() {
       'https://ntfy.sh/delayed',
     );
     await tester.pump();
-    await tester.tap(find.widgetWithText(TextButton, 'Subscribe'));
+    await tester.tap(find.widgetWithText(TextButton, 'SUBSCRIBE'));
     await tester.pump();
     await tester.binding.handlePopRoute();
     await tester.pump();
@@ -133,7 +282,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.add));
     await tester.pumpAndSettle();
     final urlField = find.byKey(const Key('topic-url-field'));
-    final subscribeButton = find.widgetWithText(TextButton, 'Subscribe');
+    final subscribeButton = find.widgetWithText(TextButton, 'SUBSCRIBE');
 
     await tester.enterText(urlField, 'https://ntfy.sh');
     await tester.pump();
@@ -170,7 +319,7 @@ void main() {
 
     final theme = Theme.of(tester.element(find.byType(Scaffold)));
 
-    expect(theme.appBarTheme.backgroundColor, const Color(0xff338574));
+    expect(theme.appBarTheme.backgroundColor, const Color(0xffffffff));
     expect(theme.scaffoldBackgroundColor, const Color(0xffffffff));
   });
 
@@ -272,6 +421,211 @@ void main() {
     expect(store.backgroundListening, isFalse);
     expect(host.stops, 1);
   });
+
+  testWidgets('notification taps deduplicate only while the route is open', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/first', displayName: 'First');
+    final second = await store.add(
+      url: 'https://ntfy.sh/second',
+      displayName: 'Second',
+    );
+    final platform = _RecordingNotificationPlatform();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        notifications: MessageNotificationSession(platform),
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: store,
+            subscription: subscription,
+            client: _SilentClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    platform.emit(
+      NotificationTarget(subscriptionId: second.id, eventId: 'second-message'),
+    );
+    platform.emit(
+      NotificationTarget(subscriptionId: second.id, eventId: 'second-message'),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(TopicFeedScreen), findsOneWidget);
+    expect(find.text('Second'), findsOneWidget);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Subscribed topics'), findsOneWidget);
+
+    platform.emit(
+      NotificationTarget(subscriptionId: second.id, eventId: 'second-message'),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(TopicFeedScreen), findsOneWidget);
+    expect(find.text('Second'), findsOneWidget);
+  });
+
+  testWidgets('topic-only subscriptions use the configured default server', (
+    tester,
+  ) async {
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await settings.saveSettings(
+      const AppSettings(defaultServer: 'https://example.com/base/'),
+    );
+    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('topic-url-field')), 'alerts');
+    await tester.pump();
+    final subscribe = find.widgetWithText(TextButton, 'SUBSCRIBE');
+    expect(tester.widget<TextButton>(subscribe).onPressed, isNotNull);
+    await tester.tap(subscribe);
+    await tester.pumpAndSettle();
+
+    expect(await store.all(), hasLength(1));
+    expect((await store.all()).single.url, 'https://example.com/base/alerts');
+  });
+
+  testWidgets('only a resumed topmost topic is marked visible', (tester) async {
+    await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
+    final platform = _RecordingNotificationPlatform();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        notifications: MessageNotificationSession(platform),
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: store,
+            subscription: subscription,
+            client: _SilentClient(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production'));
+    await tester.pumpAndSettle();
+    expect(platform.visibleId, 1);
+
+    await tester.tap(find.byIcon(Icons.more_vert));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Subscription settings'));
+    await tester.pumpAndSettle();
+    expect(platform.visibleId, isNull);
+
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(platform.visibleId, 1);
+
+    for (final state in const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pump();
+    expect(platform.visibleId, isNull);
+
+    for (final state in const [
+      AppLifecycleState.hidden,
+      AppLifecycleState.inactive,
+      AppLifecycleState.resumed,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pump();
+    expect(platform.visibleId, 1);
+  });
+
+  testWidgets('home has stable light, dark, and large-text goldens', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/rahul', displayName: 'Rahul');
+    final routeObserver = RouteObserver<PageRoute<dynamic>>();
+
+    Future<void> pumpVariant({
+      required ThemeData theme,
+      required Size size,
+      required double textScale,
+    }) async {
+      tester.view
+        ..physicalSize = size
+        ..devicePixelRatio = 1;
+      await tester.pumpWidget(
+        MaterialApp(
+          debugShowCheckedModeBanner: false,
+          theme: theme,
+          navigatorObservers: [routeObserver],
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
+          home: SubscriptionsScreen(
+            store: store,
+            feedFactory: (subscription) => TopicFeedSession(
+              controller: TopicFeedController(
+                repository: store,
+                subscription: subscription,
+                client: _SilentClient(),
+              ),
+            ),
+            retention: RetentionSession(store),
+            backgroundListening: BackgroundListeningSession(
+              store,
+              _RecordingBackgroundHost(),
+            ),
+            notifications: MessageNotificationSession(
+              _RecordingNotificationPlatform(),
+            ),
+            routeObserver: routeObserver,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    addTearDown(tester.view.reset);
+    await pumpVariant(
+      theme: lightTheme,
+      size: const Size(412, 915),
+      textScale: 1,
+    );
+    await expectLater(
+      find.byType(SubscriptionsScreen),
+      matchesGoldenFile('goldens/home_light_phone.png'),
+    );
+
+    await pumpVariant(
+      theme: darkTheme,
+      size: const Size(412, 915),
+      textScale: 1,
+    );
+    await expectLater(
+      find.byType(SubscriptionsScreen),
+      matchesGoldenFile('goldens/home_dark_phone.png'),
+    );
+
+    await pumpVariant(
+      theme: lightTheme,
+      size: const Size(600, 960),
+      textScale: 1.6,
+    );
+    await expectLater(
+      find.byType(SubscriptionsScreen),
+      matchesGoldenFile('goldens/home_light_large_text.png'),
+    );
+  });
 }
 
 class _DelayedSubscriptionRepository
@@ -295,6 +649,28 @@ class _DelayedSubscriptionRepository
 
   @override
   Future<List<Subscription>> all() async => _subscriptions;
+
+  @override
+  Future<void> markRead(int subscriptionId) async {}
+
+  @override
+  Future<Subscription> rename(int subscriptionId, String? displayName) async {
+    final current = _subscriptions.singleWhere(
+      (item) => item.id == subscriptionId,
+    );
+    final renamed = Subscription(
+      id: current.id,
+      url: current.url,
+      displayName: displayName?.trim().isEmpty == true
+          ? null
+          : displayName?.trim(),
+      unreadCount: current.unreadCount,
+      totalCount: current.totalCount,
+      lastActivity: current.lastActivity,
+    );
+    _subscriptions = [renamed];
+    return renamed;
+  }
 
   @override
   Future<void> remove(int subscriptionId) async {
@@ -356,6 +732,14 @@ mixin _MemoryRetention {
 }
 
 class _RecordingBackgroundHost implements BackgroundListeningHost {
+  _RecordingBackgroundHost({
+    this.statusValue = const BackgroundListeningHostStatus(
+      running: false,
+      notificationPresent: false,
+    ),
+  });
+
+  final BackgroundListeningHostStatus statusValue;
   int starts = 0;
   int stops = 0;
   int channelSettingsOpens = 0;
@@ -373,17 +757,108 @@ class _RecordingBackgroundHost implements BackgroundListeningHost {
   Future<void> openChannelSettings() async => channelSettingsOpens++;
 
   @override
-  Future<BackgroundListeningHostStatus> status() async =>
-      const BackgroundListeningHostStatus(
-        running: false,
-        notificationPresent: false,
-      );
+  Future<BackgroundListeningHostStatus> status() async => statusValue;
+}
+
+class _MemoryPreferences implements PreferencesBackend {
+  final values = <String, String>{};
+
+  @override
+  String? getString(String key) => values[key];
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    values[key] = value;
+    return true;
+  }
+}
+
+class _MemorySecrets implements SecretBackend {
+  final values = <String, String>{};
+
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+}
+
+class _RecordingNotificationPlatform implements NotificationPlatform {
+  final _taps = StreamController<NotificationTarget>.broadcast();
+  int? visibleId;
+
+  void emit(NotificationTarget target) => _taps.add(target);
+
+  @override
+  Stream<NotificationTarget> get taps => _taps.stream;
+
+  @override
+  Future<void> start() async {}
+
+  @override
+  Future<bool> show(MessageNotification notification) async => true;
+
+  @override
+  Future<bool> isSubscriptionVisible(int subscriptionId) async =>
+      visibleId == subscriptionId;
+
+  @override
+  Future<void> setVisibleSubscription(int? subscriptionId) async {
+    visibleId = subscriptionId;
+  }
+
+  @override
+  Future<void> close() => _taps.close();
+}
+
+class _SilentClient implements NtfyStreamClient {
+  final _lines = StreamController<String>();
+
+  @override
+  Future<FeedConnection> connect({
+    required String topicUrl,
+    String? cursor,
+  }) async => FeedConnection(
+    lines: _lines.stream,
+    onClose: () async {
+      if (!_lines.isClosed) await _lines.close();
+    },
+  );
 }
 
 class _MemorySubscriptionRepository
     with _MemoryRetention
     implements AppRepository {
   final _subscriptions = <Subscription>[];
+  var allCalls = 0;
+
+  void seedUnread({required int count}) {
+    _subscriptions.add(
+      Subscription(
+        id: 1,
+        url: 'https://ntfy.sh/alerts',
+        displayName: 'Production',
+        unreadCount: count,
+        totalCount: count,
+        lastActivity: DateTime.utc(2026),
+      ),
+    );
+  }
+
+  void seedUnifiedPush() {
+    _subscriptions.add(
+      const Subscription(
+        id: 1,
+        url: 'https://ntfy.sh/up-topic',
+        displayName: 'UnifiedPush topic',
+        unifiedPushApp: 'com.example.client',
+        unifiedPushToken: 'connector-token',
+      ),
+    );
+  }
 
   @override
   Future<Subscription> add({required String url, String? displayName}) async {
@@ -404,7 +879,46 @@ class _MemorySubscriptionRepository
   }
 
   @override
-  Future<List<Subscription>> all() async => List.unmodifiable(_subscriptions);
+  Future<List<Subscription>> all() async {
+    allCalls++;
+    return List.unmodifiable(_subscriptions);
+  }
+
+  @override
+  Future<void> markRead(int subscriptionId) async {
+    final index = _subscriptions.indexWhere(
+      (item) => item.id == subscriptionId,
+    );
+    if (index < 0) return;
+    final current = _subscriptions[index];
+    _subscriptions[index] = Subscription(
+      id: current.id,
+      url: current.url,
+      displayName: current.displayName,
+      totalCount: current.totalCount,
+      lastActivity: current.lastActivity,
+    );
+  }
+
+  @override
+  Future<Subscription> rename(int subscriptionId, String? displayName) async {
+    final index = _subscriptions.indexWhere(
+      (item) => item.id == subscriptionId,
+    );
+    final current = _subscriptions[index];
+    final renamed = Subscription(
+      id: current.id,
+      url: current.url,
+      displayName: displayName?.trim().isEmpty == true
+          ? null
+          : displayName?.trim(),
+      unreadCount: current.unreadCount,
+      totalCount: current.totalCount,
+      lastActivity: current.lastActivity,
+    );
+    _subscriptions[index] = renamed;
+    return renamed;
+  }
 
   @override
   Future<void> remove(int subscriptionId) async {

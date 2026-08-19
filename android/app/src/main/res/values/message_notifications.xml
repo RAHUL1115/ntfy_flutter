@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="message_channel_min">Minimum priority messages</string>
+    <string name="message_channel_low">Low priority messages</string>
+    <string name="message_channel_default">Default priority messages</string>
+    <string name="message_channel_high">High priority messages</string>
+    <string name="message_channel_max">Maximum priority messages</string>
+    <string name="connection_alert_channel">Connection alerts</string>
+    <string name="connection_alert_title">Connection lost</string>
+</resources>
