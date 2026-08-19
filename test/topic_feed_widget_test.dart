@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/main.dart';
@@ -49,6 +50,44 @@ void main() {
       tester.widget<MarkdownBody>(find.byType(MarkdownBody)).data,
       contains('**Important**'),
     );
+  });
+
+  testWidgets('plain message web URLs open when tapped', (tester) async {
+    final repository = _WidgetRepository(messageCount: 0);
+    repository.messages.add(
+      StoredMessage(
+        localId: 1,
+        subscriptionId: 1,
+        eventId: 'plain-link',
+        time: DateTime.utc(2026),
+        message: 'See https://example.com/docs for details',
+      ),
+    );
+    final platform = _RecordingActionPlatform();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+          actionExecutor: MessageActionExecutor(platform: platform),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final linkify = tester.widget<Linkify>(find.byType(Linkify));
+    expect(linkify.text, contains('https://example.com/docs'));
+    linkify.onOpen!(UrlElement('https://example.com/docs'));
+    await tester.pump();
+
+    expect(platform.opened, [Uri.parse('https://example.com/docs')]);
   });
 
   testWidgets('advanced message content, click, and actions are interactive', (

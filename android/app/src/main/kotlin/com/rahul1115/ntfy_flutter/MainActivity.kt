@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -14,6 +15,16 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val notificationPermissionResults = mutableListOf<MethodChannel.Result>()
     private lateinit var messageNotificationChannel: MethodChannel
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val highestRefreshRate = windowManager.defaultDisplay.supportedRefreshRates.maxOrNull()
+        if (highestRefreshRate != null) {
+            window.attributes = window.attributes.apply {
+                preferredRefreshRate = highestRefreshRate
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

@@ -982,6 +982,8 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
       final uri = Uri.tryParse(input);
       final url = uri != null && uri.hasScheme
           ? input
+          : input.split('/').first.contains('.')
+          ? 'https://$input'
           : '${widget.defaultServer.replaceFirst(RegExp(r'/+$'), '')}/${input.replaceFirst(RegExp(r'^/+'), '')}';
       final subscription = await widget.store.add(
         url: url,

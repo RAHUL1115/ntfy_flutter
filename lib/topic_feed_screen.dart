@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_linkify/flutter_linkify.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -1085,7 +1086,17 @@ class _MessageCard extends StatelessWidget {
                     },
                   )
                 else
-                  LText(message.decodedMessage),
+                  Linkify(
+                    text: message.decodedMessage,
+                    onOpen: (link) => onAction(
+                      MessageAction(
+                        id: 'message-link',
+                        action: 'view',
+                        label: link.url,
+                        url: link.url,
+                      ),
+                    ),
+                  ),
                 if (message.attachment case final attachment?) ...[
                   const SizedBox(height: 8),
                   ListTile(

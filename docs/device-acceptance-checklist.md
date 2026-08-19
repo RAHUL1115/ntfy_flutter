@@ -147,7 +147,7 @@ through the background service with the expected Android notification.
   independent UnifiedPush client app.
 - [ ] Enable logs, exercise network/publish activity, export logs, and verify the 1,000-entry cap and secret redaction.
 
-## UI, intents, and accessibility (#11, #12, #14, #18)
+## UI, intents, and accessibility (#11, #12, #14, #18, #20)
 
 - [ ] Compare every screen in `docs/androdu_version_ref` side by side in light mode, then repeat core surfaces in dark/dynamic-color mode.
 - [ ] Verify home/topic overflow menus, refresh snackbar, test notification, copy/share URL, rate app, documentation, and report-issue intents.
@@ -155,12 +155,14 @@ through the background service with the expected Android notification.
 - [ ] Complete TalkBack spoken traversal through home, add topic, feed,
   publish, search, topic settings, and app settings; verify order, labels,
   actions, and state announcements. API 36 home labels passed on the AVD, but
-  repeated System UI ANRs prevented reliable end-to-end traversal.
+  repeated System UI ANRs prevented reliable end-to-end traversal. This is now
+  tracked independently in #20.
 - [ ] Repeat at the largest practical font/display scale and check touch targets, clipping, overflow, and landscape behavior.
 - [ ] Check scroll anchoring while older messages are read and while new messages arrive at and away from the bottom.
 
 ## Closure
 
-- [ ] Add observed results and device details to #9–#19.
+- [ ] Add remaining observed results and device details to #19 and #20.
 - [ ] Resolve or explicitly accept the known differences in `full-parity-status.md`.
-- [ ] Close child tickets only when their device criteria pass; close #11/#12 last.
+- [x] Close completed parent/umbrella tickets; keep independent #19 and #20
+  visible until their remaining criteria pass or are explicitly accepted.

@@ -3,7 +3,7 @@
 Status date: 2026-08-19
 
 This is the authoritative implementation and verification record for issues
-#9–#19. The behavior reference is
+#9–#20. The behavior reference is
 [`binwiederhier/ntfy-android`](https://github.com/binwiederhier/ntfy-android/)
 at tag [`v1.25.2`](https://github.com/binwiederhier/ntfy-android/tree/v1.25.2),
 mirrored in the sibling `../ntfy-android` checkout. The nine files in
@@ -20,8 +20,9 @@ per-topic delivery, settings, large text, landscape, UnifiedPush component
 toggling, and connected Android tests. A stock Google APIs Android 16 / API 36
 AVD also passed release installation/launch and exposed labeled home controls
 to its bundled TalkBack service. Actual sound, vibration, notification LED,
-OEM battery behavior, independent UnifiedPush interoperability, and final
-human visual/spoken review remain open. Real trusted-CA TLS and
+OEM battery behavior, independent UnifiedPush interoperability, and the
+residual visual differences in #19 remain open. Physical TalkBack acceptance
+is tracked separately in #20. Real trusted-CA TLS and
 client-certificate mTLS interoperability now pass against a local ntfy server
 and terminating TLS proxy.
 Port-specific strings that do not exist
@@ -35,14 +36,15 @@ explicit localization difference pending approval or translated copy.
 | #9 | Permission context, five priority channels, emoji presentation, replacement/deduplication, visible-feed suppression, actions, remote icons, and exact-message tap routing | Actual sound, tactile vibration, and notification LED output |
 | #10 | Grouped listeners, bounded reconnect, network callbacks, boot/service restoration, aggregate errors, and duplicate prevention | OEM-specific battery restriction behavior |
 | #11 | Integrated MVP, release build, persistence, feed/publish/retention flows, semantics, source-aligned core UI, real-server suite, physical-device smoke, and an in-place 0.1.0 → 0.1.1 upgrade with data/profile preservation | None; acceptance complete |
-| #12 | Umbrella parity work implemented through #13–#19 and inventoried against native source | Full side-by-side emulator and physical-device acceptance |
+| #12 | Closed after umbrella parity work, source inventory, and final nine-screen side-by-side review | None; residual differences moved to independent #19 |
 | #13 | Global/per-topic mute, inheritance, priorities, insistent max, attachment policy, topic icon, dedicated channels, and DND routing | Actual sound, tactile vibration, LED, and human insistent-behavior observation |
 | #14 | Topic search over persisted message/title/tag data with clear/no-result states | Hardware/system Back, rotation, and large-history responsiveness |
 | #15 | Advanced publish fields, local/URL attachments, authenticated downloads, progress/open/cleanup, and limits | Android picker/share/open apps and large-file cancellation |
 | #16 | Per-topic background delivery eligibility shared by foreground/background selection | Real background and battery-restriction behavior |
 | #17 | Default server, users/auth, appearance, 31 native language catalogs, backup/restore, protocols, headers, certificates, broadcasts, UnifiedPush, logs, and About; trusted-CA TLS and client-certificate mTLS passed in foreground and background | Independent UnifiedPush client ecosystem |
-| #18 | Source toolbar/menu utilities, feedback, terminal-bubble icon, colors, priority glyphs, empty copy, stable core visuals, dynamic color, and external intents | Complete human spoken traversal and final target-device comparison |
-| #19 | Extended message semantics, safe actions/click/icon/Markdown, localization, transactional certificate backup, connection recovery UI, UnifiedPush bridge, and nine real-font reference goldens | Device-only criteria from the checklist |
+| #18 | Closed after source toolbar/menu utilities, feedback, colors, priority glyphs, empty copy, stable core visuals, dynamic color, external intents, and final side-by-side review | None |
+| #19 | Independent external/device and residual visual-parity backlog | Sensory/OEM behavior, independent UnifiedPush, and the recorded golden/reference differences |
+| #20 | Physical-device TalkBack acceptance | Complete spoken traversal on the target device |
 
 ## Screenshot evidence
 

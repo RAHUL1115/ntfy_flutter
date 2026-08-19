@@ -2,6 +2,7 @@ package com.rahul1115.ntfy_flutter
 
 import android.Manifest
 import android.app.NotificationManager
+import android.content.Intent
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.os.Build
@@ -152,6 +153,21 @@ class MessageNotificationAdapterTest {
 
         MessageNotificationAdapter.setVisibleSubscription(null)
         assertFalse(MessageNotificationAdapter.isSubscriptionVisible(7))
+    }
+
+    @Test
+    fun testMainActivityRequestsHighestSupportedRefreshRate() {
+        val activity = instrumentation.startActivitySync(
+            Intent(instrumentation.targetContext, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        ) as MainActivity
+        try {
+            val expected = activity.windowManager.defaultDisplay.supportedRefreshRates.maxOrNull()
+            assertEquals(expected, activity.window.attributes.preferredRefreshRate)
+        } finally {
+            activity.finish()
+        }
     }
 
     private fun request(priority: Int): Map<String, Any> = mapOf(

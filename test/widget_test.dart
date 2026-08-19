@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/background_listening.dart';
@@ -10,6 +11,7 @@ import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/notifications.dart';
 import 'package:ntfy_flutter/ntfy_topic_icon.dart';
 import 'package:ntfy_flutter/retention.dart';
+import 'package:ntfy_flutter/retention_settings.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:ntfy_flutter/topic_feed_screen.dart';
@@ -169,8 +171,85 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Critical alerts'), findsOneWidget);
+    expect(find.byKey(const Key('topic-display-name')), findsOneWidget);
+    expect(find.text('Critical alerts'), findsWidgets);
     expect((await store.all()).single.url, 'https://ntfy.sh/alerts');
+  });
+
+  testWidgets('changing background delivery keeps topic settings open', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TopicSettingsScreen(
+          subscription: const Subscription(
+            id: 1,
+            url: 'https://ntfy.sh/alerts',
+            displayName: 'Production',
+            backgroundEnabled: true,
+          ),
+          retention: RetentionSession(store),
+          onRename: (name) => store.rename(1, name),
+          onBackgroundEnabled: (enabled) async => Subscription(
+            id: 1,
+            url: 'https://ntfy.sh/alerts',
+            displayName: 'Production',
+            backgroundEnabled: enabled,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('topic-background-listening')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('topic-display-name')), findsOneWidget);
+    expect(
+      tester
+          .widget<SwitchListTile>(
+            find.byKey(const Key('topic-background-listening')),
+          )
+          .value,
+      isFalse,
+    );
+  });
+
+  testWidgets('tapping the topic URL copies it', (tester) async {
+    String? copiedText;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedText =
+              (call.arguments as Map<Object?, Object?>)['text'] as String;
+        }
+        return null;
+      },
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        null,
+      ),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TopicSettingsScreen(
+          subscription: const Subscription(
+            id: 1,
+            url: 'https://ntfy.sh/alerts',
+          ),
+          retention: RetentionSession(store),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Topic URL'));
+    await tester.pump();
+
+    expect(copiedText, 'https://ntfy.sh/alerts');
+    expect(find.text('Topic URL copied.'), findsOneWidget);
   });
 
   testWidgets('UnifiedPush rows show their app and open settings', (
@@ -493,6 +572,26 @@ void main() {
 
     expect(await store.all(), hasLength(1));
     expect((await store.all()).single.url, 'https://example.com/base/alerts');
+  });
+
+  testWidgets('scheme-less server subscriptions are recognized as URLs', (
+    tester,
+  ) async {
+    await tester.pumpWidget(NtfyApp(store: store));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('topic-url-field')),
+      'ntfy.sh/topic1',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, 'SUBSCRIBE'));
+    await tester.pumpAndSettle();
+
+    expect(await store.all(), hasLength(1));
+    expect((await store.all()).single.url, 'https://ntfy.sh/topic1');
   });
 
   testWidgets('only a resumed topmost topic is marked visible', (tester) async {

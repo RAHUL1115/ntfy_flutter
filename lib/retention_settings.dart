@@ -55,7 +55,7 @@ class SettingsScreen extends StatelessWidget {
   );
 }
 
-class TopicSettingsScreen extends StatelessWidget {
+class TopicSettingsScreen extends StatefulWidget {
   const TopicSettingsScreen({
     required this.subscription,
     required this.retention,
@@ -71,8 +71,23 @@ class TopicSettingsScreen extends StatelessWidget {
   final NotificationPolicyRepository? policies;
   final Future<Subscription> Function(bool enabled)? onBackgroundEnabled;
 
+  @override
+  State<TopicSettingsScreen> createState() => _TopicSettingsScreenState();
+}
+
+class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
+  late Subscription _subscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _subscription = widget.subscription;
+  }
+
+  void _close() => Navigator.pop(context, _subscription);
+
   Future<void> _rename(BuildContext context) async {
-    final controller = TextEditingController(text: subscription.displayName);
+    final controller = TextEditingController(text: _subscription.displayName);
     final value = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -82,7 +97,7 @@ class TopicSettingsScreen extends StatelessWidget {
           controller: controller,
           autofocus: true,
           decoration: InputDecoration(
-            hintText: Uri.parse(subscription.url).pathSegments.last,
+            hintText: Uri.parse(_subscription.url).pathSegments.last,
             helperText: tr(context, 'Leave empty to use the topic name.'),
           ),
           onSubmitted: (value) => Navigator.pop(context, value),
@@ -101,8 +116,8 @@ class TopicSettingsScreen extends StatelessWidget {
     );
     if (value == null || !context.mounted) return;
     try {
-      final updated = await onRename!(value);
-      if (context.mounted) Navigator.pop(context, updated);
+      final updated = await widget.onRename!(value);
+      if (mounted) setState(() => _subscription = updated);
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -113,58 +128,73 @@ class TopicSettingsScreen extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: LText(
-        subscription.displayName ??
-            Uri.parse(subscription.url).pathSegments.last,
+  Widget build(BuildContext context) => PopScope<Subscription>(
+    canPop: false,
+    onPopInvokedWithResult: (didPop, _) {
+      if (!didPop) _close();
+    },
+    child: Scaffold(
+      appBar: AppBar(
+        title: LText(
+          _subscription.displayName ??
+              Uri.parse(_subscription.url).pathSegments.last,
+        ),
       ),
-    ),
-    body: ListView(
-      children: [
-        if (onRename != null) ...[
-          const _SectionHeader('Appearance'),
-          ListTile(
-            key: const Key('topic-display-name'),
-            title: const LText('Display name'),
-            subtitle: LText(
-              subscription.displayName ??
-                  Uri.parse(subscription.url).pathSegments.last,
+      body: ListView(
+        children: [
+          if (widget.onRename != null) ...[
+            const _SectionHeader('Appearance'),
+            ListTile(
+              key: const Key('topic-display-name'),
+              title: const LText('Display name'),
+              subtitle: LText(
+                _subscription.displayName ??
+                    Uri.parse(_subscription.url).pathSegments.last,
+              ),
+              onTap: () => _rename(context),
             ),
-            onTap: () => _rename(context),
+            const Divider(height: 1),
+          ],
+          if (widget.policies != null)
+            _NotificationPolicySettings(
+              policies: widget.policies!,
+              subscriptionId: _subscription.id,
+            ),
+          if (widget.onBackgroundEnabled != null)
+            SwitchListTile(
+              key: const Key('topic-background-listening'),
+              title: const LText('Background delivery'),
+              subtitle: const LText(
+                'Receive this topic while the app is not visible.',
+              ),
+              value: _subscription.backgroundEnabled,
+              onChanged: (enabled) async {
+                final updated = await widget.onBackgroundEnabled!(enabled);
+                if (mounted) setState(() => _subscription = updated);
+              },
+            ),
+          _RetentionSettings(
+            retention: widget.retention,
+            subscriptionId: _subscription.id,
+            showHeader: widget.policies == null,
           ),
           const Divider(height: 1),
-        ],
-        if (policies != null)
-          _NotificationPolicySettings(
-            policies: policies!,
-            subscriptionId: subscription.id,
-          ),
-        if (onBackgroundEnabled != null)
-          SwitchListTile(
-            key: const Key('topic-background-listening'),
-            title: const LText('Background delivery'),
-            subtitle: const LText(
-              'Receive this topic while the app is not visible.',
-            ),
-            value: subscription.backgroundEnabled,
-            onChanged: (enabled) async {
-              final updated = await onBackgroundEnabled!(enabled);
-              if (context.mounted) Navigator.pop(context, updated);
+          const _SectionHeader('About'),
+          ListTile(
+            key: const Key('topic-url'),
+            title: const LText('Topic URL'),
+            subtitle: LText(_subscription.url),
+            onTap: () async {
+              await Clipboard.setData(ClipboardData(text: _subscription.url));
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: LText('Topic URL copied.')),
+                );
+              }
             },
           ),
-        _RetentionSettings(
-          retention: retention,
-          subscriptionId: subscription.id,
-          showHeader: policies == null,
-        ),
-        const Divider(height: 1),
-        const _SectionHeader('About'),
-        ListTile(
-          title: const LText('Topic URL'),
-          subtitle: LText(subscription.url),
-        ),
-      ],
+        ],
+      ),
     ),
   );
 }
