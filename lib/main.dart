@@ -719,7 +719,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
             ),
           if (_globalPolicy != null)
             Hero(
-              tag: 'home-notification-to-search',
+              tag: 'notification-bell',
               transitionOnUserGestures: true,
               child: Material(
                 color: Colors.transparent,
@@ -741,6 +741,14 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               ),
             ),
           PopupMenuButton<_HomeAction>(
+            icon: const Hero(
+              tag: 'overflow-menu',
+              transitionOnUserGestures: true,
+              child: Material(
+                color: Colors.transparent,
+                child: Icon(Icons.more_vert),
+              ),
+            ),
             position: PopupMenuPosition.under,
             offset: const Offset(-8, -4),
             constraints: const BoxConstraints.tightFor(width: 200),
