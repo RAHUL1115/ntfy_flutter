@@ -2,6 +2,14 @@
 
 Status: Ready for agent
 
+## Source baseline
+
+The replication and porting baseline is
+[`binwiederhier/ntfy-android`](https://github.com/binwiederhier/ntfy-android/)
+tag [`v1.25.2`](https://github.com/binwiederhier/ntfy-android/tree/v1.25.2).
+Every reference to the source, native, or upstream app in this specification
+means that exact tag unless another version is stated explicitly.
+
 ## Problem Statement
 
 A new ntfy client is needed with a Flutter interface that closely follows the source native ntfy Android app, while retaining the reliable Android behavior required for receiving messages when the visible Flutter interface is backgrounded or terminated. A direct line-by-line conversion of the native app would reproduce years of implementation complexity and expose portable behavior to Android-specific details. The long-term product must keep all portable domain, protocol, persistence, and orchestration behavior in Flutter/Dart, with native Android code limited to platform capabilities that Flutter cannot reliably provide.

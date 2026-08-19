@@ -4,6 +4,11 @@ Independent Flutter port of the ntfy Android client. It uses its own Android
 application ID and SQLite database; it does not import or migrate data from the
 official app.
 
+The parity target is [`binwiederhier/ntfy-android`](https://github.com/binwiederhier/ntfy-android/)
+at tag [`v1.25.2`](https://github.com/binwiederhier/ntfy-android/tree/v1.25.2).
+References to the source or upstream app mean that fixed version, not its
+moving default branch.
+
 The current implementation includes subscriptions, foreground/background
 delivery, Android message notifications, notification policy, search,
 publishing and managed attachments, retention, per-topic delivery, networking

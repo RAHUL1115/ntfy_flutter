@@ -3,8 +3,13 @@
 Status date: 2026-08-19
 
 This is the authoritative implementation and verification record for issues
-#9–#19. The sibling `../ntfy-android` source is the behavior reference and the
-nine files in `docs/androdu_version_ref` are the visual reference set.
+#9–#19. The behavior reference is
+[`binwiederhier/ntfy-android`](https://github.com/binwiederhier/ntfy-android/)
+at tag [`v1.25.2`](https://github.com/binwiederhier/ntfy-android/tree/v1.25.2),
+mirrored in the sibling `../ntfy-android` checkout. The nine files in
+`docs/androdu_version_ref` are the visual reference set. Comparisons do not
+follow the upstream default branch unless a newer baseline is explicitly
+adopted.
 
 ## Current verdict
 
