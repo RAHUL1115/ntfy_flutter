@@ -152,8 +152,8 @@ void main() {
 
       expect(client.cursors.take(2), [null, 'one']);
       expect(controller.state.messages.map((message) => message.eventId), [
-        'two',
         'one',
+        'two',
       ]);
       expect(repository.ingested.map((message) => message.message), [
         'Later',
@@ -163,12 +163,12 @@ void main() {
       final deleted = await controller.deleteMessage(
         controller.state.messages.first.localId,
       );
-      expect(controller.state.messages.single.message, 'Later');
+      expect(controller.state.messages.single.message, 'Earlier');
 
       await controller.restoreMessage(deleted!);
       expect(controller.state.messages.map((message) => message.message), [
-        'Earlier',
         'Later',
+        'Earlier',
       ]);
 
       final requestCount = client.cursors.length;

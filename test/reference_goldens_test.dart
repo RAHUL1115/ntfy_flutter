@@ -17,7 +17,7 @@ import 'package:ntfy_flutter/topic_feed.dart';
 import 'package:ntfy_flutter/topic_feed_screen.dart';
 
 void main() {
-  testWidgets('all nine Android reference states have readable goldens', (
+  testWidgets('all ten Android reference states have readable goldens', (
     tester,
   ) async {
     final fontLoader = FontLoader('GoldenRoboto')
@@ -54,7 +54,11 @@ void main() {
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
 
-    Future<void> pump(Widget home, {double bottomInset = 0}) async {
+    Future<void> pump(
+      Widget home, {
+      double bottomInset = 0,
+      bool asRoute = false,
+    }) async {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pumpWidget(
@@ -67,16 +71,31 @@ void main() {
                 .copyWith(viewInsets: EdgeInsets.only(bottom: bottomInset)),
             child: child!,
           ),
-          home: home,
+          home: asRoute
+              ? Builder(
+                  builder: (context) => TextButton(
+                    key: const Key('open-reference-route'),
+                    onPressed: () => Navigator.push<void>(
+                      context,
+                      MaterialPageRoute(builder: (_) => home),
+                    ),
+                    child: const Text('Open'),
+                  ),
+                )
+              : home,
         ),
       );
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      if (asRoute) {
+        await tester.tap(find.byKey(const Key('open-reference-route')));
+        await tester.pumpAndSettle();
+      } else {
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+      }
     }
 
     Future<void> pumpTransition() async {
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
     }
 
     TopicFeedScreen topic() => TopicFeedScreen(
@@ -147,6 +166,7 @@ void main() {
         onBackgroundEnabled: (enabled) =>
             store.setTopicBackgroundEnabled(subscription.id, enabled),
       ),
+      asRoute: true,
     );
     await expectLater(
       find.byType(Overlay),
@@ -185,10 +205,47 @@ void main() {
         policies: store,
         settings: settings,
       ),
+      asRoute: true,
     );
     await expectLater(
       find.byType(Overlay),
       matchesGoldenFile('goldens/reference_app_settings.png'),
+    );
+
+    tester.view.physicalSize = const Size(412, 915);
+    store.messages = [
+      StoredMessage(
+        localId: 3,
+        subscriptionId: subscription.id,
+        eventId: 'build-ready',
+        time: DateTime(2026, 8, 19, 18, 13),
+        title: 'ntfy Flutter build ready',
+        message: 'ntfy Flutter: Topic URL tap now copies the URL; high-refresh Android mode request added. 140 tests pass, analyze clean, release APK built and installed on Genymotion.',
+        tags: const ['white_check_mark'],
+      ),
+      StoredMessage(
+        localId: 2,
+        subscriptionId: subscription.id,
+        eventId: 'tickets-ready',
+        time: DateTime(2026, 8, 19, 18),
+        title: 'ntfy tickets restructured and icon ready',
+        message: 'Ticket restructuring complete: only #19 and #20 remain open.',
+        tags: const ['white_check_mark', 'art'],
+      ),
+      StoredMessage(
+        localId: 1,
+        subscriptionId: subscription.id,
+        eventId: 'release-ready',
+        time: DateTime(2026, 8, 19, 17, 24),
+        title: 'ntfy Flutter release build ready',
+        message: 'ntfy Flutter fixes complete. Local signed release APK ready.',
+        tags: const ['white_check_mark', 'package'],
+      ),
+    ];
+    await pump(topic(), asRoute: true);
+    await expectLater(
+      find.byType(Overlay),
+      matchesGoldenFile('goldens/reference_topic_with_data.png'),
     );
   }, tags: 'golden');
 }
@@ -261,6 +318,7 @@ class _GoldenRepository
         TopicNotificationPolicyRepository,
         TopicDeliveryRepository {
   final _subscriptions = <Subscription>[];
+  List<StoredMessage> messages = [];
   NotificationPolicy policy = const NotificationPolicy();
   TopicNotificationPolicyOverrides overrides =
       const TopicNotificationPolicyOverrides();
@@ -306,7 +364,7 @@ class _GoldenRepository
 
   @override
   Future<FeedSnapshot> loadFeed(int subscriptionId) async =>
-      FeedSnapshot(messages: []);
+      FeedSnapshot(messages: messages);
 
   @override
   Future<StoredMessage?> ingest(

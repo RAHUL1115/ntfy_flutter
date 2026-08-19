@@ -56,7 +56,7 @@ void main() {
       expect(
         (await store.loadFeed(subscription.id)).messages
             .map((message) => message.eventId),
-        ['at-cutoff', 'current'],
+        ['current', 'at-cutoff'],
       );
     });
   }
@@ -228,7 +228,7 @@ void main() {
 
       final snapshot = await store.loadFeed(subscription.id);
       expect(snapshot.messages.map((message) => message.eventId), [
-        for (var index = 0; index < 10; index++) 'current-$index',
+        for (var index = 9; index >= 0; index--) 'current-$index',
       ]);
       expect(snapshot.cursor, 'current-9');
       expect((await store.all()).single.id, subscription.id);

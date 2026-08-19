@@ -86,6 +86,17 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
 
   void _close() => Navigator.pop(context, _subscription);
 
+  Widget _backgroundDelivery() => SwitchListTile(
+    key: const Key('topic-background-listening'),
+    title: const LText('Background delivery'),
+    subtitle: const LText('Receive this topic while the app is not visible.'),
+    value: _subscription.backgroundEnabled,
+    onChanged: (enabled) async {
+      final updated = await widget.onBackgroundEnabled!(enabled);
+      if (mounted) setState(() => _subscription = updated);
+    },
+  );
+
   Future<void> _rename(BuildContext context) async {
     final controller = TextEditingController(text: _subscription.displayName);
     final value = await showDialog<String>(
@@ -142,8 +153,28 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
       ),
       body: ListView(
         children: [
+          if (widget.policies != null) ...[
+            const _SectionHeader('Notifications'),
+            if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+            _NotificationPolicySettings(
+              policies: widget.policies!,
+              subscriptionId: _subscription.id,
+              retention: widget.retention,
+              showHeader: false,
+              showAppearanceHeader: true,
+            ),
+          ] else ...[
+            if (widget.onBackgroundEnabled != null) _backgroundDelivery(),
+            _RetentionSettings(
+              retention: widget.retention,
+              subscriptionId: _subscription.id,
+            ),
+          ],
           if (widget.onRename != null) ...[
-            const _SectionHeader('Appearance'),
+            if (widget.policies == null) ...[
+              const Divider(height: 1),
+              const _SectionHeader('Appearance'),
+            ],
             ListTile(
               key: const Key('topic-display-name'),
               title: const LText('Display name'),
@@ -153,31 +184,7 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
               ),
               onTap: () => _rename(context),
             ),
-            const Divider(height: 1),
           ],
-          if (widget.policies != null)
-            _NotificationPolicySettings(
-              policies: widget.policies!,
-              subscriptionId: _subscription.id,
-            ),
-          if (widget.onBackgroundEnabled != null)
-            SwitchListTile(
-              key: const Key('topic-background-listening'),
-              title: const LText('Background delivery'),
-              subtitle: const LText(
-                'Receive this topic while the app is not visible.',
-              ),
-              value: _subscription.backgroundEnabled,
-              onChanged: (enabled) async {
-                final updated = await widget.onBackgroundEnabled!(enabled);
-                if (mounted) setState(() => _subscription = updated);
-              },
-            ),
-          _RetentionSettings(
-            retention: widget.retention,
-            subscriptionId: _subscription.id,
-            showHeader: widget.policies == null,
-          ),
           const Divider(height: 1),
           const _SectionHeader('About'),
           ListTile(
@@ -204,11 +211,15 @@ class _NotificationPolicySettings extends StatefulWidget {
     required this.policies,
     this.subscriptionId,
     this.retention,
+    this.showHeader = true,
+    this.showAppearanceHeader = false,
   });
 
   final NotificationPolicyRepository policies;
   final int? subscriptionId;
   final RetentionSession? retention;
+  final bool showHeader;
+  final bool showAppearanceHeader;
 
   @override
   State<_NotificationPolicySettings> createState() =>
@@ -455,7 +466,7 @@ class _NotificationPolicySettingsState
     if (policy == null) return const LinearProgressIndicator();
     return Column(
       children: [
-        const _SectionHeader('Notifications'),
+        if (widget.showHeader) const _SectionHeader('Notifications'),
         ListTile(
           key: const Key('mute-notifications'),
           title: const LText('Mute notifications'),
@@ -511,27 +522,6 @@ class _NotificationPolicySettingsState
           ),
         if (widget.subscriptionId != null)
           ListTile(
-            key: const Key('subscription-icon'),
-            title: LText(
-              policy.subscriptionIconPath == null
-                  ? 'Subscription icon'
-                  : 'Subscription icon (tap to remove)',
-            ),
-            subtitle: LText(
-              policy.subscriptionIconPath == null
-                  ? 'Set an icon to be displayed in notifications'
-                  : 'Icon displayed in notifications for this topic',
-            ),
-            onTap: policy.subscriptionIconPath == null
-                ? _selectIcon
-                : overrides == null
-                ? null
-                : () => _saveOverrides(
-                    overrides.copyWith(subscriptionIconPath: null),
-                  ),
-          ),
-        if (widget.subscriptionId != null)
-          ListTile(
             key: const Key('dedicated-notification-channel'),
             title: const LText('Dedicated notification channel'),
             subtitle: LText(
@@ -558,6 +548,32 @@ class _NotificationPolicySettingsState
                 : null,
           ),
         ),
+        if (widget.subscriptionId != null) ...[
+          if (widget.showAppearanceHeader) ...[
+            const Divider(height: 1),
+            const _SectionHeader('Appearance'),
+          ],
+          ListTile(
+            key: const Key('subscription-icon'),
+            title: LText(
+              policy.subscriptionIconPath == null
+                  ? 'Subscription icon'
+                  : 'Subscription icon (tap to remove)',
+            ),
+            subtitle: LText(
+              policy.subscriptionIconPath == null
+                  ? 'Set an icon to be displayed in notifications'
+                  : 'Icon displayed in notifications for this topic',
+            ),
+            onTap: policy.subscriptionIconPath == null
+                ? _selectIcon
+                : overrides == null
+                ? null
+                : () => _saveOverrides(
+                    overrides.copyWith(subscriptionIconPath: null),
+                  ),
+          ),
+        ],
       ],
     );
   }
@@ -1113,21 +1129,19 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
             ),
           ),
         ),
-        if (widget.database != null) ...[
-          const _SectionHeader('Backup & Restore'),
-          ListTile(
-            key: const Key('backup-setting'),
-            title: const LText('Back up to file'),
-            subtitle: const LText('Export config, notifications, and users'),
-            onTap: _backup,
-          ),
-          ListTile(
-            key: const Key('restore-setting'),
-            title: const LText('Restore from file'),
-            subtitle: const LText('Import config, notifications and users'),
-            onTap: _restore,
-          ),
-        ],
+        const _SectionHeader('Backup & Restore'),
+        ListTile(
+          key: const Key('backup-setting'),
+          title: const LText('Back up to file'),
+          subtitle: const LText('Export config, notifications, and users'),
+          onTap: _backup,
+        ),
+        ListTile(
+          key: const Key('restore-setting'),
+          title: const LText('Restore from file'),
+          subtitle: const LText('Import config, notifications and users'),
+          onTap: _restore,
+        ),
         const _SectionHeader('Advanced'),
         ListTile(
           key: const Key('disconnected-alerts-setting'),

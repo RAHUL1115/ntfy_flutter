@@ -86,10 +86,10 @@ void main() {
       expect(requests[0].path, '/alerts/json');
       expect(requests[0].queryParameters['since'], 'all');
       expect(requests[1].queryParameters['since'], 'a');
-      expect(snapshot.messages.map((message) => message.eventId), ['b', 'a']);
-      expect(snapshot.messages.last.title, 'Title');
-      expect(snapshot.messages.last.priority, 5);
-      expect(snapshot.messages.last.tags, ['warning']);
+      expect(snapshot.messages.map((message) => message.eventId), ['a', 'b']);
+      expect(snapshot.messages.first.title, 'Title');
+      expect(snapshot.messages.first.priority, 5);
+      expect(snapshot.messages.first.tags, ['warning']);
       expect(snapshot.cursor, 'b');
       await store.close();
 
@@ -114,9 +114,9 @@ void main() {
         contains('b'),
       );
       expect(snapshot.messages.map((message) => message.eventId), [
-        'b',
-        'a',
         'c',
+        'a',
+        'b',
       ]);
       expect(snapshot.cursor, 'c');
     },
@@ -292,8 +292,8 @@ void main() {
 
       final snapshot = await uiStore.loadFeed(subscription.id);
       expect(snapshot.messages.map((message) => message.eventId), [
-        'background-1',
         'background-2',
+        'background-1',
       ]);
       expect(snapshot.cursor, 'background-2');
       await uiStore.setBackgroundListening(false);

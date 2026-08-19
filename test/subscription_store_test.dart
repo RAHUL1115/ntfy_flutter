@@ -338,7 +338,7 @@ void main() {
     expect(await reopenedStore.loadBackgroundListening(), isTrue);
   });
 
-  test('persists messages oldest first with all supported fields', () async {
+  test('persists messages newest first with all supported fields', () async {
     final store = await _openMemoryStore();
     addTearDown(store.close);
     final subscription = await store.add(url: 'https://ntfy.sh/alerts');
@@ -377,16 +377,16 @@ void main() {
     );
 
     final snapshot = await store.loadFeed(subscription.id);
-    expect(snapshot.messages, [earlier, later]);
-    expect(snapshot.messages.last.title, 'Later title');
-    expect(snapshot.messages.last.priority, 5);
-    expect(snapshot.messages.last.tags, ['warning', 'server']);
-    expect(snapshot.messages.last.sequenceId, 'deployment');
-    expect(snapshot.messages.last.click, 'https://example.com/details');
-    expect(snapshot.messages.last.icon, 'https://example.com/icon.png');
-    expect(snapshot.messages.last.contentType, 'text/markdown');
-    expect(snapshot.messages.last.encoding, 'base64');
-    expect(snapshot.messages.last.actions.single.value, 'value');
+    expect(snapshot.messages, [later, earlier]);
+    expect(snapshot.messages.first.title, 'Later title');
+    expect(snapshot.messages.first.priority, 5);
+    expect(snapshot.messages.first.tags, ['warning', 'server']);
+    expect(snapshot.messages.first.sequenceId, 'deployment');
+    expect(snapshot.messages.first.click, 'https://example.com/details');
+    expect(snapshot.messages.first.icon, 'https://example.com/icon.png');
+    expect(snapshot.messages.first.contentType, 'text/markdown');
+    expect(snapshot.messages.first.encoding, 'base64');
+    expect(snapshot.messages.first.actions.single.value, 'value');
     expect(snapshot.cursor, 'earlier');
   });
 
@@ -521,8 +521,8 @@ void main() {
     await store.restoreMessage(first.id, firstMessage);
     final restored = await store.loadFeed(first.id);
     expect(restored.messages.map((message) => message.message), [
-      'First A',
       'First B',
+      'First A',
     ]);
     expect(restored.cursor, 'first-b');
 

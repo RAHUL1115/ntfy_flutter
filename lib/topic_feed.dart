@@ -470,7 +470,9 @@ class TopicFeedController {
       await _serialize(() async {
         final snapshot = await repository.loadFeed(subscription.id);
         if (_closed) return;
-        _messages = List.unmodifiable(snapshot.messages);
+        _messages = List.unmodifiable(
+          <StoredMessage>[...snapshot.messages]..sort(_compareStoredMessages),
+        );
         _cursor = snapshot.cursor;
         _emit(FeedStatus.connecting);
       });
@@ -694,7 +696,9 @@ class TopicFeedController {
 
   Future<void> _refreshLocalMessages() async {
     final snapshot = await repository.loadFeed(subscription.id);
-    _messages = List.unmodifiable(snapshot.messages);
+    _messages = List.unmodifiable(
+      <StoredMessage>[...snapshot.messages]..sort(_compareStoredMessages),
+    );
     _cursor = snapshot.cursor;
     _emit(_state.status, error: _state.error);
   }
@@ -751,9 +755,9 @@ class TopicFeedController {
   }
 
   static int _compareStoredMessages(StoredMessage left, StoredMessage right) {
-    final byTime = left.time.compareTo(right.time);
+    final byTime = right.time.compareTo(left.time);
     if (byTime != 0) return byTime;
-    return left.localId.compareTo(right.localId);
+    return right.localId.compareTo(left.localId);
   }
 }
 

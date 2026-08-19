@@ -131,7 +131,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Production'), findsOneWidget);
-    expect(find.textContaining('https://ntfy.sh/alerts'), findsOneWidget);
+    expect(find.text('No notifications yet'), findsOneWidget);
+    expect(find.textContaining('https://ntfy.sh/alerts'), findsNothing);
     expect(
       find.text("It looks like you don't have any subscriptions yet."),
       findsNothing,
@@ -348,7 +349,7 @@ void main() {
 
     delayedStore.complete();
     await tester.pumpAndSettle();
-    expect(find.text('https://ntfy.sh/delayed'), findsOneWidget);
+    expect(find.text('delayed'), findsOneWidget);
   });
 
   testWidgets('shows actionable validation and duplicate feedback', (

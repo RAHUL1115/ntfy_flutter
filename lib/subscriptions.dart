@@ -415,7 +415,7 @@ class SubscriptionStore
           'messages',
           where: 'subscription_id = ?',
           whereArgs: [subscriptionId],
-          orderBy: 'event_time ASC, local_id ASC',
+          orderBy: 'event_time DESC, local_id DESC',
         );
         return FeedSnapshot(
           cursor: subscriptionRows.single['last_message_id'] as String?,

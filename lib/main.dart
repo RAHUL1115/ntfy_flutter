@@ -738,9 +738,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
           localizations.formatTimeOfDay(TimeOfDay.fromDateTime(lastActivity)),
         );
     }
-    return subscription.displayName == null
-        ? details.toString()
-        : '${subscription.url}\n$details';
+    return details.toString();
   }
 
   @override
@@ -835,7 +833,10 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
                   key: Key('ntfy-topic-icon'),
                   size: 35,
                 ),
-                title: LText(subscription.displayName ?? subscription.url),
+                title: LText(
+                  subscription.displayName ??
+                      Uri.parse(subscription.url).pathSegments.last,
+                ),
                 subtitle: LText(_subscriptionSubtitle(context, subscription)),
                 trailing:
                     !_hasConnectionError(subscription) &&

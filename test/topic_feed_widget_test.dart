@@ -90,6 +90,35 @@ void main() {
     expect(platform.opened, [Uri.parse('https://example.com/docs')]);
   });
 
+  testWidgets('message actions stay available without a permanent menu', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 1);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Body 0'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy'), findsOneWidget);
+    expect(find.text('Share'), findsOneWidget);
+    expect(find.text('Delete'), findsOneWidget);
+  });
+
   testWidgets('advanced message content, click, and actions are interactive', (
     tester,
   ) async {
@@ -198,7 +227,8 @@ void main() {
       expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Body 2'), findsOneWidget);
       expect(find.text('Priority 5'), findsNothing);
-      expect(find.text('Tags: warning'), findsOneWidget);
+      expect(find.textContaining('Title 2'), findsOneWidget);
+      expect(find.text('Tags: warning'), findsNothing);
       expect(
         find.bySemanticsLabel(RegExp(r'Priority 5.*Title 2.*Body 2.*warning')),
         findsOneWidget,
@@ -233,6 +263,9 @@ void main() {
 
     await tester.tap(find.byKey(const Key('topic-search-action')));
     await tester.pump();
+    expect(find.byKey(const Key('topic-search-back')), findsOneWidget);
+    expect(find.byKey(const Key('topic-notification-state')), findsNothing);
+    expect(find.byType(PopupMenuButton), findsNothing);
     await tester.enterText(
       find.byKey(const Key('topic-search-field')),
       'warning',
@@ -396,70 +429,73 @@ void main() {
     expect(find.text('Body 2'), findsOneWidget);
   });
 
-  testWidgets(
-    'starts at latest and offers new-message action away from bottom',
-    (tester) async {
-      final repository = _WidgetRepository(messageCount: 30);
-      final client = _WidgetClient();
-      await tester.pumpWidget(
-        NtfyApp(
-          store: repository,
-          feedFactory: (subscription) => TopicFeedSession(
-            controller: TopicFeedController(
-              repository: repository,
-              subscription: subscription,
-              client: client,
-              retryDelays: const [Duration(seconds: 30)],
-            ),
+  testWidgets('starts at latest and offers new-message action away from top', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 30);
+    final client = _WidgetClient();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: repository,
+        feedFactory: (subscription) => TopicFeedSession(
+          controller: TopicFeedController(
+            repository: repository,
+            subscription: subscription,
+            client: client,
+            retryDelays: const [Duration(seconds: 30)],
           ),
         ),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Production alerts'));
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('message-id-29')), findsOneWidget);
-      await tester.drag(
-        find.byKey(const Key('topic-feed-list')),
-        const Offset(0, 900),
-      );
-      await tester.pumpAndSettle();
-      final anchor = find.byKey(const ValueKey('message-id-20'));
-      final anchorTop = tester.getTopLeft(anchor).dy;
+    expect(find.byKey(const ValueKey('message-id-29')), findsOneWidget);
+    final anchor = find.byKey(const ValueKey('message-id-20'));
+    await tester.scrollUntilVisible(
+      anchor,
+      200,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('topic-feed-list')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final anchorTop = tester.getTopLeft(anchor).dy;
 
-      client.lines.add(
-        jsonEncode({
-          'event': 'message',
-          'topic': 'alerts',
-          'id': 'delayed',
-          'time': 1,
-          'message': 'Delayed body',
-        }),
-      );
-      await tester.pumpAndSettle();
-      expect(
-        tester.getTopLeft(anchor).dy,
-        moreOrLessEquals(anchorTop, epsilon: 1),
-      );
+    client.lines.add(
+      jsonEncode({
+        'event': 'message',
+        'topic': 'alerts',
+        'id': 'delayed',
+        'time': 1,
+        'message': 'Delayed body',
+      }),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(anchor).dy,
+      moreOrLessEquals(anchorTop, epsilon: 1),
+    );
 
-      client.lines.add(
-        jsonEncode({
-          'event': 'message',
-          'topic': 'alerts',
-          'id': 'new',
-          'time': 100,
-          'message': 'Newest body',
-        }),
-      );
-      await tester.pump();
+    client.lines.add(
+      jsonEncode({
+        'event': 'message',
+        'topic': 'alerts',
+        'id': 'new',
+        'time': 100,
+        'message': 'Newest body',
+      }),
+    );
+    await tester.pump();
 
-      expect(find.byKey(const Key('new-messages-action')), findsOneWidget);
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.tap(find.byKey(const Key('new-messages-action')));
-      await tester.pump();
-      expect(find.text('Newest body'), findsOneWidget);
-    },
-  );
+    expect(find.byKey(const Key('new-messages-action')), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('new-messages-action')));
+    await tester.pump();
+    expect(find.text('Newest body'), findsOneWidget);
+  });
 
   testWidgets('swipe deletes one notification locally and supports undo', (
     tester,

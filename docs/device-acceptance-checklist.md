@@ -149,7 +149,7 @@ through the background service with the expected Android notification.
 
 ## UI, intents, and accessibility (#11, #12, #14, #18, #20)
 
-- [ ] Compare every screen in `docs/androdu_version_ref` side by side in light mode, then repeat core surfaces in dark/dynamic-color mode.
+- [x] Compare all ten screens in `docs/androdu_version_ref` side by side in light mode; deterministic real-font goldens cover each supplied state, including the populated feed. Core dark/dynamic-color surfaces were exercised separately.
 - [ ] Verify home/topic overflow menus, refresh snackbar, test notification, copy/share URL, rate app, documentation, and report-issue intents.
 - [ ] Search a large topic, clear the query, use system Back, rotate the device, and confirm keyboard/focus behavior.
 - [ ] Complete TalkBack spoken traversal through home, add topic, feed,
@@ -158,7 +158,7 @@ through the background service with the expected Android notification.
   repeated System UI ANRs prevented reliable end-to-end traversal. This is now
   tracked independently in #20.
 - [ ] Repeat at the largest practical font/display scale and check touch targets, clipping, overflow, and landscape behavior.
-- [ ] Check scroll anchoring while older messages are read and while new messages arrive at and away from the bottom.
+- [x] Check scroll anchoring while older messages are read and while new messages arrive at and away from the newest-at-top edge (automated widget coverage).
 
 ## Closure
 

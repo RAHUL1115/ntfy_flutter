@@ -11,6 +11,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 
 import 'attachments.dart';
+import 'emojis.dart';
 import 'l10n.dart';
 import 'message_actions.dart';
 import 'messages.dart';
@@ -254,14 +255,14 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
   void _onState(FeedState next) {
     if (!mounted) return;
     final hadNewMessage = next.messages.length > _state.messages.length;
-    final wasAtBottom =
+    final wasAtLatest =
         !_scrollController.hasClients ||
-        _scrollController.position.extentAfter < 48;
-    final anchor = hadNewMessage && !wasAtBottom ? _captureAnchor() : null;
+        _scrollController.position.extentBefore < 48;
+    final anchor = hadNewMessage && !wasAtLatest ? _captureAnchor() : null;
     if (hadNewMessage) _markMessagesViewed();
     setState(() {
       _state = next;
-      if (hadNewMessage && _initialScrollDone && !wasAtBottom) {
+      if (hadNewMessage && _initialScrollDone && !wasAtLatest) {
         _showNewMessages = true;
       }
     });
@@ -273,7 +274,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
             if (mounted) _restoreAnchor(anchor);
           });
         }
-      } else if (!_initialScrollDone || (hadNewMessage && wasAtBottom)) {
+      } else if (!_initialScrollDone || (hadNewMessage && wasAtLatest)) {
         _initialScrollDone = true;
         _scrollToLatest();
       }
@@ -368,7 +369,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
 
   void _scrollToLatest() {
     if (!_scrollController.hasClients) return;
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    _scrollController.jumpTo(_scrollController.position.minScrollExtent);
     if (_showNewMessages) setState(() => _showNewMessages = false);
   }
 
@@ -721,6 +722,17 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
             ? theme.colorScheme.surfaceContainerHigh
             : theme.scaffoldBackgroundColor,
         appBar: AppBar(
+          leading: _searching
+              ? IconButton(
+                  key: const Key('topic-search-back'),
+                  tooltip: tr(context, 'Back'),
+                  onPressed: () => setState(() {
+                    _searching = false;
+                    _search.clear();
+                  }),
+                  icon: const Icon(Icons.arrow_back),
+                )
+              : null,
           title: _searching
               ? TextField(
                   key: const Key('topic-search-field'),
@@ -738,97 +750,97 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                       Uri.parse(_subscription.url).pathSegments.last,
                 ),
           actions: [
-            IconButton(
-              key: const Key('topic-search-action'),
-              tooltip: tr(
-                context,
-                _searching ? 'Close search' : 'Search notifications',
-              ),
-              onPressed: () => setState(() {
-                _searching = !_searching;
-                if (!_searching) _search.clear();
-              }),
-              icon: Icon(_searching ? Icons.close : Icons.search),
-            ),
-            if (_state.status == FeedStatus.error ||
-                _state.status == FeedStatus.offline)
+            if (!_searching) ...[
               IconButton(
-                key: const Key('connection-error-action'),
-                tooltip: tr(context, 'Connection error'),
-                onPressed: _showConnectionError,
-                icon: const Icon(Icons.warning_amber),
+                key: const Key('topic-search-action'),
+                tooltip: tr(context, 'Search notifications'),
+                onPressed: () => setState(() => _searching = true),
+                icon: const Icon(Icons.search),
               ),
-            if (_notificationPolicy != null)
-              IconButton(
-                key: const Key('topic-notification-state'),
-                tooltip: tr(
-                  context,
-                  _notificationPolicy!.mutedUntilEpochSeconds == 0
-                      ? 'Notifications enabled'
-                      : 'Notifications muted',
+              if (_state.status == FeedStatus.error ||
+                  _state.status == FeedStatus.offline)
+                IconButton(
+                  key: const Key('connection-error-action'),
+                  tooltip: tr(context, 'Connection error'),
+                  onPressed: _showConnectionError,
+                  icon: const Icon(Icons.warning_amber),
                 ),
-                onPressed: _selectNotificationMute,
-                icon: Icon(
-                  _notificationPolicy!.mutedUntilEpochSeconds == 0
-                      ? Icons.notifications
-                      : Icons.notifications_off_outlined,
+              if (_notificationPolicy != null)
+                IconButton(
+                  key: const Key('topic-notification-state'),
+                  tooltip: tr(
+                    context,
+                    _notificationPolicy!.mutedUntilEpochSeconds == 0
+                        ? 'Notifications enabled'
+                        : 'Notifications muted',
+                  ),
+                  onPressed: _selectNotificationMute,
+                  icon: Icon(
+                    _notificationPolicy!.mutedUntilEpochSeconds == 0
+                        ? Icons.notifications
+                        : Icons.notifications_off_outlined,
+                  ),
                 ),
+              PopupMenuButton<_TopicAction>(
+                onSelected: (action) {
+                  switch (action) {
+                    case _TopicAction.settings:
+                      unawaited(_openSettings());
+                    case _TopicAction.clear:
+                      unawaited(_confirmClear());
+                    case _TopicAction.unsubscribe:
+                      unawaited(_confirmUnsubscribe());
+                    case _TopicAction.test:
+                      unawaited(_sendTestNotification());
+                    case _TopicAction.copyUrl:
+                      unawaited(_copyTopicUrl());
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: _TopicAction.settings,
+                    child: LText('Subscription settings'),
+                  ),
+                  PopupMenuItem(
+                    value: _TopicAction.clear,
+                    enabled: _state.messages.isNotEmpty,
+                    child: const LText('Clear all notifications'),
+                  ),
+                  const PopupMenuItem(
+                    value: _TopicAction.test,
+                    child: LText('Send test notification'),
+                  ),
+                  if (Uri.parse(_subscription.url).host != 'ntfy.sh')
+                    const PopupMenuItem(
+                      value: _TopicAction.copyUrl,
+                      child: LText('Copy topic URL'),
+                    ),
+                  if (widget.onUnsubscribe != null)
+                    const PopupMenuItem(
+                      value: _TopicAction.unsubscribe,
+                      child: LText('Unsubscribe'),
+                    ),
+                ],
               ),
-            PopupMenuButton<_TopicAction>(
-              onSelected: (action) {
-                switch (action) {
-                  case _TopicAction.settings:
-                    unawaited(_openSettings());
-                  case _TopicAction.clear:
-                    unawaited(_confirmClear());
-                  case _TopicAction.unsubscribe:
-                    unawaited(_confirmUnsubscribe());
-                  case _TopicAction.test:
-                    unawaited(_sendTestNotification());
-                  case _TopicAction.copyUrl:
-                    unawaited(_copyTopicUrl());
-                }
-              },
-              itemBuilder: (_) => [
-                const PopupMenuItem(
-                  value: _TopicAction.settings,
-                  child: LText('Subscription settings'),
-                ),
-                PopupMenuItem(
-                  value: _TopicAction.clear,
-                  enabled: _state.messages.isNotEmpty,
-                  child: const LText('Clear all notifications'),
-                ),
-                const PopupMenuItem(
-                  value: _TopicAction.test,
-                  child: LText('Send test notification'),
-                ),
-                if (Uri.parse(_subscription.url).host != 'ntfy.sh')
-                  const PopupMenuItem(
-                    value: _TopicAction.copyUrl,
-                    child: LText('Copy topic URL'),
-                  ),
-                if (widget.onUnsubscribe != null)
-                  const PopupMenuItem(
-                    value: _TopicAction.unsubscribe,
-                    child: LText('Unsubscribe'),
-                  ),
-              ],
-            ),
+            ],
           ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(24),
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: LText(
-                _statusLabel(_state),
-                key: const Key('feed-status'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: theme.appBarTheme.foregroundColor),
-              ),
-            ),
-          ),
+          bottom: _searching
+              ? null
+              : PreferredSize(
+                  preferredSize: const Size.fromHeight(24),
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: LText(
+                      _statusLabel(_state),
+                      key: const Key('feed-status'),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: theme.appBarTheme.foregroundColor,
+                      ),
+                    ),
+                  ),
+                ),
         ),
         body: _state.messages.isEmpty && _state.status == FeedStatus.loading
             ? const Center(child: CircularProgressIndicator())
@@ -846,7 +858,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
             ? FloatingActionButton.extended(
                 key: const Key('new-messages-action'),
                 onPressed: _scrollToLatest,
-                icon: const Icon(Icons.arrow_downward),
+                icon: const Icon(Icons.arrow_upward),
                 label: const LText('New messages'),
               )
             : null,
@@ -997,12 +1009,51 @@ class _MessageCard extends StatelessWidget {
   final double? attachmentProgress;
   final String? attachmentError;
 
+  Future<void> _showActions(BuildContext context) async {
+    final action = await showModalBottomSheet<_MessageAction>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.copy_outlined),
+              title: const LText('Copy'),
+              onTap: () => Navigator.pop(context, _MessageAction.copy),
+            ),
+            ListTile(
+              leading: const Icon(Icons.share_outlined),
+              title: const LText('Share'),
+              onTap: () => Navigator.pop(context, _MessageAction.share),
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const LText('Delete'),
+              onTap: () => Navigator.pop(context, _MessageAction.delete),
+            ),
+          ],
+        ),
+      ),
+    );
+    switch (action) {
+      case _MessageAction.copy:
+        await Clipboard.setData(ClipboardData(text: message.decodedMessage));
+      case _MessageAction.share:
+        await SharePlus.instance.share(
+          ShareParams(text: message.decodedMessage),
+        );
+      case _MessageAction.delete:
+        onDelete();
+      case null:
+        return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final localTime = message.time.toLocal();
     final localizations = MaterialLocalizations.of(context);
     final timestamp =
-        '${localizations.formatMediumDate(localTime)} '
+        '${localizations.formatShortDate(localTime)} '
         '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(localTime))}';
     final priority = message.priority == 3
         ? null
@@ -1032,6 +1083,7 @@ class _MessageCard extends StatelessWidget {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
         child: InkWell(
           onTap: onClick,
+          onLongPress: () => unawaited(_showActions(context)),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 9, 12, 11),
             child: Column(
@@ -1059,10 +1111,18 @@ class _MessageCard extends StatelessWidget {
                 ),
                 if (message.title != null) ...[
                   const SizedBox(height: 4),
-                  LText(
-                    message.title!,
-                    style: Theme.of(context).textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
+                  FutureBuilder<String>(
+                    future: EmojiTags.prefix(message.tags),
+                    builder: (context, snapshot) {
+                      final emoji = snapshot.data ?? '';
+                      return LText(
+                        emoji.isEmpty
+                            ? message.title!
+                            : '$emoji ${message.title!}',
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
+                      );
+                    },
                   ),
                 ],
                 const SizedBox(height: 3),
@@ -1134,49 +1194,26 @@ class _MessageCard extends StatelessWidget {
                         .toList(),
                   ),
                 ],
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: PopupMenuButton<_MessageAction>(
-                    tooltip: tr(context, 'Notification actions'),
-                    onSelected: (action) async {
-                      switch (action) {
-                        case _MessageAction.copy:
-                          await Clipboard.setData(
-                            ClipboardData(text: message.decodedMessage),
-                          );
-                        case _MessageAction.share:
-                          await SharePlus.instance.share(
-                            ShareParams(text: message.decodedMessage),
-                          );
-                        case _MessageAction.delete:
-                          onDelete();
-                      }
+                if (tags != null)
+                  FutureBuilder<List<String>>(
+                    future: EmojiTags.unmatched(message.tags),
+                    builder: (context, snapshot) {
+                      final unmatched = snapshot.data ?? const <String>[];
+                      if (unmatched.isEmpty) return const SizedBox.shrink();
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: LText(
+                          'Tags: ${unmatched.join(', ')}',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      );
                     },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(
-                        value: _MessageAction.copy,
-                        child: LText('Copy'),
-                      ),
-                      PopupMenuItem(
-                        value: _MessageAction.share,
-                        child: LText('Share'),
-                      ),
-                      PopupMenuItem(
-                        value: _MessageAction.delete,
-                        child: LText('Delete'),
-                      ),
-                    ],
                   ),
-                ),
-                if (tags != null) ...[
-                  const SizedBox(height: 6),
-                  LText(
-                    tags,
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
