@@ -21,6 +21,8 @@ object MessageNotificationAdapter {
     private const val EXTRA_SUBSCRIPTION_ID = "notification.subscriptionId"
     private const val EXTRA_EVENT_ID = "notification.eventId"
     private const val EXTRA_FULL_SCREEN_ELIGIBLE = "notification.fullScreenEligible"
+    private const val EXTRA_NOTIFICATION_TAG = "notification.tag"
+    private const val EXTRA_NOTIFICATION_ID = "notification.id"
     private const val TAG_PREFIX = "ntfy:"
 
     private val pendingTaps = ArrayDeque<Map<String, Any>>()
@@ -102,7 +104,11 @@ object MessageNotificationAdapter {
     fun isSubscriptionVisible(subscriptionId: Int): Boolean =
         visibleSubscriptionId == subscriptionId
 
-    fun show(context: Context, request: Map<String, Any>): Boolean {
+    fun show(
+        context: Context,
+        request: Map<String, Any>,
+        fullScreenAllowed: Boolean = canUseFullScreenIntent(context),
+    ): Boolean {
         val id = (request["id"] as? Number)?.toInt() ?: return false
         val subscriptionId =
             (request["subscriptionId"] as? Number)?.toInt() ?: return false
@@ -131,6 +137,7 @@ object MessageNotificationAdapter {
         }
 
         val notificationId = notificationId(subscriptionId, sequenceId)
+        val notificationTag = notificationTag(subscriptionId, sequenceId)
         val openTopic = PendingIntent.getActivity(
             context,
             notificationId,
@@ -160,19 +167,74 @@ object MessageNotificationAdapter {
             .setShowWhen(true)
             .setAutoCancel(true)
             .setOnlyAlertOnce(!insistent)
-            .setCategory(Notification.CATEGORY_MESSAGE)
+            .setCategory(
+                if (fullScreenEligible) Notification.CATEGORY_ALARM
+                else Notification.CATEGORY_MESSAGE,
+            )
             .setPriority(legacyPriority(priority))
             .addExtras(Bundle().apply {
                 putInt(EXTRA_SUBSCRIPTION_ID, subscriptionId)
                 putString(EXTRA_EVENT_ID, eventId)
                 putBoolean(EXTRA_FULL_SCREEN_ELIGIBLE, fullScreenEligible)
             })
+        if (fullScreenEligible) {
+            val openAlertTopic = PendingIntent.getActivity(
+                context,
+                notificationId,
+                launchIntent(context, subscriptionId, eventId).apply {
+                    putExtra(EXTRA_NOTIFICATION_TAG, notificationTag)
+                    putExtra(EXTRA_NOTIFICATION_ID, notificationId)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            val dismissAlert = PendingIntent.getBroadcast(
+                context,
+                notificationId,
+                Intent(context, InsistentNotificationReceiver::class.java).apply {
+                    action = "com.rahul1115.ntfy_flutter.DISMISS_FULL_SCREEN"
+                    putExtra("tag", notificationTag)
+                    putExtra("id", notificationId)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            builder
+                .addAction(
+                    Notification.Action.Builder(
+                        0,
+                        context.getString(R.string.full_screen_alert_dismiss),
+                        dismissAlert,
+                    ).build(),
+                )
+                .addAction(
+                    Notification.Action.Builder(
+                        0,
+                        context.getString(R.string.full_screen_alert_open),
+                        openAlertTopic,
+                    ).build(),
+                )
+            if (fullScreenAllowed) {
+                builder.setFullScreenIntent(
+                    FullScreenAlertActivity.pendingIntent(
+                        context,
+                        notificationId,
+                        notificationTag,
+                        subscriptionId,
+                        eventId,
+                        title,
+                        body,
+                        timestamp,
+                    ),
+                    true,
+                )
+            }
+        }
         addUserActions(
             context,
             builder,
             request["actions"] as? List<*>,
             subscriptionId,
             sequenceId,
+            if (fullScreenEligible) 1 else 3,
         )
         if (insistent) {
             builder.setDeleteIntent(
@@ -191,7 +253,7 @@ object MessageNotificationAdapter {
         if (insistent) {
             notification.flags = notification.flags or Notification.FLAG_INSISTENT
         }
-        manager.notify(notificationTag(subscriptionId, sequenceId), notificationId, notification)
+        manager.notify(notificationTag, notificationId, notification)
         return true
     }
 
@@ -208,8 +270,9 @@ object MessageNotificationAdapter {
         values: List<*>?,
         subscriptionId: Int,
         sequenceId: String,
+        limit: Int,
     ) {
-        values.orEmpty().take(3).forEach { value ->
+        values.orEmpty().take(limit).forEach { value ->
             @Suppress("UNCHECKED_CAST")
             val action = value as? Map<String, Any?> ?: return@forEach
             val id = action["id"] as? String ?: return@forEach
@@ -386,6 +449,18 @@ object MessageNotificationAdapter {
         tapChannel?.invokeMethod("notificationTapAvailable", null)
     }
 
+    fun handleLaunchIntent(context: Context, intent: Intent?) {
+        if (intent == null) return
+        val tag = intent.getStringExtra(EXTRA_NOTIFICATION_TAG)
+        val id = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
+        if (tag != null && id >= 0) {
+            context.getSystemService(NotificationManager::class.java).cancel(tag, id)
+            intent.removeExtra(EXTRA_NOTIFICATION_TAG)
+            intent.removeExtra(EXTRA_NOTIFICATION_ID)
+        }
+        recordLaunchIntent(intent)
+    }
+
     fun takeNotificationTap(): Map<String, Any>? = synchronized(pendingTaps) {
         if (pendingTaps.isEmpty()) null else pendingTaps.removeFirst()
     }
@@ -401,6 +476,10 @@ object MessageNotificationAdapter {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.N ||
             context.getSystemService(NotificationManager::class.java).areNotificationsEnabled()
     }
+
+    fun canUseFullScreenIntent(context: Context): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+            context.getSystemService(NotificationManager::class.java).canUseFullScreenIntent()
 
     fun activeNotifications(context: Context): List<Map<String, Any>> {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return emptyList()

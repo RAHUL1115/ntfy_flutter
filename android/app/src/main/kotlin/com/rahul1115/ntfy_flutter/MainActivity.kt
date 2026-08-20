@@ -36,7 +36,7 @@ class MainActivity : FlutterActivity() {
             MessageNotificationAdapter.CHANNEL_NAME,
         )
         MessageNotificationAdapter.configure(messageNotificationChannel, this, handlesTaps = true)
-        MessageNotificationAdapter.recordLaunchIntent(intent)
+        MessageNotificationAdapter.handleLaunchIntent(this, intent)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.rahul1115.ntfy_flutter/background_host",
@@ -124,7 +124,7 @@ class MainActivity : FlutterActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        MessageNotificationAdapter.recordLaunchIntent(intent)
+        MessageNotificationAdapter.handleLaunchIntent(this, intent)
     }
 
     override fun onDestroy() {

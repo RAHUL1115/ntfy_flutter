@@ -2,10 +2,13 @@ package com.rahul1115.ntfy_flutter
 
 import android.Manifest
 import android.app.NotificationManager
+import android.app.Activity
 import android.content.Intent
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Button
+import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -81,7 +84,7 @@ class MessageNotificationAdapterTest {
     }
 
     @Test
-    fun testEligibleFullScreenAlertUsesMaximumImportanceFallback() {
+    fun testEligibleFullScreenAlertUsesIntentWhenAllowed() {
         assertEquals(
             PackageManager.PERMISSION_GRANTED,
             instrumentation.targetContext.packageManager.checkPermission(
@@ -93,13 +96,117 @@ class MessageNotificationAdapterTest {
             MessageNotificationAdapter.show(
                 instrumentation.targetContext,
                 request(1) + ("fullScreenEligible" to true),
+                fullScreenAllowed = true,
             ),
         )
 
         val notification = awaitActiveNotifications(1).single().notification
         assertEquals("ntfy-max", notification.channelId)
+        assertEquals(android.app.Notification.CATEGORY_ALARM, notification.category)
         assertTrue(notification.extras.getBoolean("notification.fullScreenEligible"))
+        assertNotNull(notification.fullScreenIntent)
+        assertEquals(2, notification.actions.size)
+        assertEquals("Dismiss", notification.actions[0].title)
+        assertEquals("Open topic", notification.actions[1].title)
+    }
+
+    @Test
+    fun testDeniedFullScreenAccessKeepsMaximumImportanceFallback() {
+        assertTrue(
+            MessageNotificationAdapter.show(
+                instrumentation.targetContext,
+                request(1) + ("fullScreenEligible" to true),
+                fullScreenAllowed = false,
+            ),
+        )
+
+        val notification = awaitActiveNotifications(1).single().notification
+        assertEquals("ntfy-max", notification.channelId)
         assertNull(notification.fullScreenIntent)
+        assertEquals(2, notification.actions.size)
+    }
+
+    @Test
+    fun testIneligibleNotificationHasNoFullScreenIntent() {
+        assertTrue(MessageNotificationAdapter.show(instrumentation.targetContext, request(1)))
+
+        assertNull(awaitActiveNotifications(1).single().notification.fullScreenIntent)
+    }
+
+    @Test
+    fun testFullScreenActivityRendersAndDismissesExactNotification() {
+        assertTrue(
+            MessageNotificationAdapter.show(
+                instrumentation.targetContext,
+                request(1) + ("fullScreenEligible" to true),
+                fullScreenAllowed = false,
+            ),
+        )
+        val active = awaitActiveNotifications(1).single()
+        val activity = startFullScreenActivity(active.tag, active.id)
+        try {
+            assertEquals(
+                "A long urgent alert title",
+                activity.findViewById<TextView>(R.id.full_screen_alert_title).text,
+            )
+            assertEquals(
+                "A full message that needs immediate attention.",
+                activity.findViewById<TextView>(R.id.full_screen_alert_message).text,
+            )
+            val dismiss = activity.findViewById<Button>(R.id.full_screen_alert_dismiss)
+            assertTrue(dismiss.height >= dp(48))
+            instrumentation.runOnMainSync { dismiss.performClick() }
+            awaitNoNotification(active.tag)
+            assertTrue(activity.isFinishing)
+        } finally {
+            if (!activity.isFinishing) activity.finish()
+        }
+    }
+
+    @Test
+    fun testFullScreenActivityOpenRoutesOnceAndCancelsNotification() {
+        assertTrue(
+            MessageNotificationAdapter.show(
+                instrumentation.targetContext,
+                request(1) + ("fullScreenEligible" to true),
+                fullScreenAllowed = false,
+            ),
+        )
+        val active = awaitActiveNotifications(1).single()
+        val activity = startFullScreenActivity(active.tag, active.id)
+        try {
+            instrumentation.runOnMainSync {
+                activity.findViewById<Button>(R.id.full_screen_alert_open).performClick()
+            }
+            awaitNoNotification(active.tag)
+            val target = awaitNotificationTap()
+            assertEquals(7, target?.get("subscriptionId"))
+            assertEquals("event-1", target?.get("eventId"))
+            assertNull(MessageNotificationAdapter.takeNotificationTap())
+            assertTrue(activity.isFinishing)
+        } finally {
+            if (!activity.isFinishing) activity.finish()
+        }
+    }
+
+    @Test
+    fun testFullScreenActivityBackDismissesNotification() {
+        assertTrue(
+            MessageNotificationAdapter.show(
+                instrumentation.targetContext,
+                request(1) + ("fullScreenEligible" to true),
+                fullScreenAllowed = false,
+            ),
+        )
+        val active = awaitActiveNotifications(1).single()
+        val activity = startFullScreenActivity(active.tag, active.id)
+        try {
+            instrumentation.runOnMainSync { activity.onBackPressed() }
+            awaitNoNotification(active.tag)
+            assertTrue(activity.isFinishing)
+        } finally {
+            if (!activity.isFinishing) activity.finish()
+        }
     }
 
     @Test
@@ -211,6 +318,42 @@ class MessageNotificationAdapterTest {
         "priority" to listOf("min", "low", "normal", "high", "max")[priority - 1],
         "timestamp" to 1_787_000_000_000L,
     )
+
+    private fun startFullScreenActivity(tag: String, id: Int): Activity =
+        instrumentation.startActivitySync(
+            Intent(instrumentation.targetContext, FullScreenAlertActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                putExtra(FullScreenAlertActivity.EXTRA_NOTIFICATION_TAG, tag)
+                putExtra(FullScreenAlertActivity.EXTRA_NOTIFICATION_ID, id)
+                putExtra(FullScreenAlertActivity.EXTRA_SUBSCRIPTION_ID, 7)
+                putExtra(FullScreenAlertActivity.EXTRA_EVENT_ID, "event-1")
+                putExtra(FullScreenAlertActivity.EXTRA_TITLE, "A long urgent alert title")
+                putExtra(
+                    FullScreenAlertActivity.EXTRA_BODY,
+                    "A full message that needs immediate attention.",
+                )
+                putExtra(FullScreenAlertActivity.EXTRA_TIMESTAMP, 1_787_000_000_000L)
+            },
+        )
+
+    private fun awaitNoNotification(tag: String) {
+        repeat(50) {
+            if (manager.activeNotifications.none { it.tag == tag }) return
+            Thread.sleep(20)
+        }
+        assertTrue(manager.activeNotifications.none { it.tag == tag })
+    }
+
+    private fun awaitNotificationTap(): Map<String, Any>? {
+        repeat(100) {
+            MessageNotificationAdapter.takeNotificationTap()?.let { return it }
+            Thread.sleep(20)
+        }
+        return null
+    }
+
+    private fun dp(value: Int) =
+        (value * instrumentation.targetContext.resources.displayMetrics.density).toInt()
 
     private fun awaitActiveNotifications(count: Int) = run {
         var notifications = manager.activeNotifications

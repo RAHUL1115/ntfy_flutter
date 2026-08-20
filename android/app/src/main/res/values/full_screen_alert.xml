@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="full_screen_alert_title" type="id" />
+    <item name="full_screen_alert_message" type="id" />
+    <item name="full_screen_alert_time" type="id" />
+    <item name="full_screen_alert_dismiss" type="id" />
+    <item name="full_screen_alert_open" type="id" />
+    <string name="full_screen_alert_heading">ntfy urgent alert</string>
+    <string name="full_screen_alert_app_icon">ntfy</string>
+    <string name="full_screen_alert_dismiss">Dismiss</string>
+    <string name="full_screen_alert_open">Open topic</string>
+</resources>
