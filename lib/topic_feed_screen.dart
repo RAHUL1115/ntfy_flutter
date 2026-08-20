@@ -794,19 +794,15 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                   ),
                   onChanged: (_) => setState(() {}),
                 )
-              : Hero(
-                  tag: 'topic-title-${_subscription.id}',
-                  transitionOnUserGestures: true,
-                  child: Builder(
-                    builder: (context) => Material(
-                      color: Colors.transparent,
-                      textStyle: DefaultTextStyle.of(context).style,
-                      child: LText(
-                        _subscription.displayName ??
-                            Uri.parse(_subscription.url).pathSegments.last,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+              : Builder(
+                  builder: (context) => Material(
+                    color: Colors.transparent,
+                    textStyle: DefaultTextStyle.of(context).style,
+                    child: LText(
+                      _subscription.displayName ??
+                          Uri.parse(_subscription.url).pathSegments.last,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
                 ),
@@ -877,37 +873,23 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         icon: const Icon(Icons.warning_amber),
       ),
     if (_notificationPolicy != null)
-      Hero(
-        tag: 'notification-bell',
-        transitionOnUserGestures: true,
-        child: Material(
-          color: Colors.transparent,
-          child: IconButton(
-            key: const Key('topic-notification-state'),
-            tooltip: tr(
-              context,
-              _notificationPolicy!.mutedUntilEpochSeconds == 0
-                  ? 'Notifications enabled'
-                  : 'Notifications muted',
-            ),
-            onPressed: _selectNotificationMute,
-            icon: Icon(
-              _notificationPolicy!.mutedUntilEpochSeconds == 0
-                  ? Icons.notifications_none
-                  : Icons.notifications_off_outlined,
-            ),
-          ),
+      IconButton(
+        key: const Key('topic-notification-state'),
+        tooltip: tr(
+          context,
+          _notificationPolicy!.mutedUntilEpochSeconds == 0
+              ? 'Notifications enabled'
+              : 'Notifications muted',
+        ),
+        onPressed: _selectNotificationMute,
+        icon: Icon(
+          _notificationPolicy!.mutedUntilEpochSeconds == 0
+              ? Icons.notifications_none
+              : Icons.notifications_off_outlined,
         ),
       ),
     PopupMenuButton<_TopicAction>(
-      icon: const Hero(
-        tag: 'overflow-menu',
-        transitionOnUserGestures: true,
-        child: Material(
-          color: Colors.transparent,
-          child: Icon(Icons.more_vert),
-        ),
-      ),
+      icon: const Icon(Icons.more_vert),
       position: PopupMenuPosition.under,
       offset: const Offset(-8, -4),
       constraints: const BoxConstraints.tightFor(width: 220),

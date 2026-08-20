@@ -33,6 +33,11 @@ const designHeaderExpandedHeight = 268.0;
 const designHeaderCollapsedHeight = 72.0;
 const designMotionDuration = Duration(milliseconds: 250);
 
+/// Continued downward pull, in logical pixels, that is swallowed before the
+/// header starts expanding. Ordinary upward scrolls that reach the top do not
+/// expand the header; only a deliberate continued pull does.
+const designHeaderExpandFriction = 24.0;
+
 final _designHeadersExpanded = ValueNotifier(true);
 
 const _lightScheme = ColorScheme.light(
@@ -567,6 +572,9 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
   late double _headerExtent;
   var _dragging = false;
   var _headerDragging = false;
+  var _overscrollCredit = 0.0;
+  var _counterScrolling = false;
+  var _dragStartPixels = 0.0;
 
   ScrollController get _scrollController =>
       widget.scrollController ?? _fallbackScrollController;
@@ -600,6 +608,8 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
   double get _progress =>
       (_headerExtent - designHeaderCollapsedHeight) /
       (designHeaderExpandedHeight - designHeaderCollapsedHeight);
+
+  double get _headerRoom => _headerExtent - designHeaderCollapsedHeight;
 
   void _setExtent(double extent) {
     final next = extent.clamp(
@@ -686,25 +696,34 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
     switch (notification) {
       case ScrollStartNotification(dragDetails: != null):
         if (!_dragging) setState(() => _dragging = true);
+        _overscrollCredit = 0;
       case ScrollUpdateNotification(:final dragDetails)
           when dragDetails != null:
-        final delta = dragDetails.delta.dy;
-        final collapse = delta < 0;
-        final nearTop =
-            notification.metrics.pixels <=
-            designHeaderExpandedHeight - designHeaderCollapsedHeight;
-        if (collapse || nearTop) _setExtent(_headerExtent + delta);
+        if (dragDetails.delta.dy < 0) {
+          // A forward (scroll-up finger) movement cancels any accumulated
+          // expansion pull; expansion itself is driven by overscroll below.
+          _overscrollCredit = 0;
+        }
       case ScrollUpdateNotification(:final scrollDelta)
           when _dragging && scrollDelta != null:
         if (scrollDelta > 0) {
           _settle(false);
-        } else if (notification.metrics.pixels <=
-            designHeaderExpandedHeight - designHeaderCollapsedHeight) {
-          _settle(true);
         }
       case OverscrollNotification(:final overscroll, dragDetails: != null):
-        _setExtent(_headerExtent - overscroll);
+        if (overscroll < 0) {
+          // A continued pull past the top grows the header after the dead
+          // zone. Clamping physics reports top overscroll as negative.
+          _overscrollCredit += -overscroll;
+          final excess = _overscrollCredit - designHeaderExpandFriction;
+          if (excess > 0) {
+            _setExtent(_headerExtent + excess);
+          }
+        } else {
+          // Bottom overscroll still collapses the header (short lists).
+          _setExtent(_headerExtent - overscroll);
+        }
       case ScrollEndNotification():
+        _dragging = false;
         _snap();
       case UserScrollNotification(direction: ScrollDirection.idle):
         _snap();
@@ -712,6 +731,16 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
         break;
     }
     return false;
+  }
+
+  /// Collapses the header by [pixels] of forward (scroll-down) user drag.
+  /// Returns the drag delta that is left for the list to scroll, so the
+  /// header always collapses before the content moves (collapse-first
+  /// ordering). Called from [_DesignHeaderScrollPhysics].
+  double _consumeForwardUserOffset(double pixels) {
+    final consumed = pixels.clamp(0.0, _headerRoom);
+    if (consumed > 0) _setExtent(_headerExtent - consumed);
+    return pixels - consumed;
   }
 
   @override
@@ -725,49 +754,115 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
                 icon: const Icon(Icons.arrow_back),
               )
             : null);
-    return SafeArea(
-      bottom: false,
-      child: Column(
-        children: [
-          GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onVerticalDragStart: _onHeaderDragStart,
-            onVerticalDragUpdate: _onHeaderDragUpdate,
-            onVerticalDragEnd: _onHeaderDragEnd,
-            onVerticalDragCancel: _onHeaderDragCancel,
-            child: DesignHeader(
-              progress: widget.forceCollapsed ? 0 : _progress,
-              duration: _dragging ? Duration.zero : designMotionDuration,
-              title: widget.title,
-              leading: leading,
-              onCollapsedTitleTap: widget.onCollapsedTitleTap,
-              actions: widget.actions,
-              expandedTitleSize: widget.expandedTitleSize,
-              collapsedTitleSize: widget.collapsedTitleSize,
+    return _DesignHeaderScrollScope(
+      state: this,
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragStart: _onHeaderDragStart,
+              onVerticalDragUpdate: _onHeaderDragUpdate,
+              onVerticalDragEnd: _onHeaderDragEnd,
+              onVerticalDragCancel: _onHeaderDragCancel,
+              child: DesignHeader(
+                progress: widget.forceCollapsed ? 0 : _progress,
+                duration: _dragging ? Duration.zero : designMotionDuration,
+                title: widget.title,
+                leading: leading,
+                onCollapsedTitleTap: widget.onCollapsedTitleTap,
+                actions: widget.actions,
+                expandedTitleSize: widget.expandedTitleSize,
+                collapsedTitleSize: widget.collapsedTitleSize,
+              ),
             ),
-          ),
-          Expanded(
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _onScroll,
-              child: ScrollConfiguration(
-                behavior: const _DesignScrollBehavior(),
-                child: PrimaryScrollController(
-                  controller: _scrollController,
-                  child: widget.child,
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onScroll,
+                child: ScrollConfiguration(
+                  behavior: _DesignScrollBehavior(state: this),
+                  child: PrimaryScrollController(
+                    controller: _scrollController,
+                    child: widget.child,
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-class _DesignScrollBehavior extends MaterialScrollBehavior {
-  const _DesignScrollBehavior();
+/// Exposes the live [_CollapsibleDesignBodyState] to descendant scrollables
+/// so their physics can consume forward drag into the header first.
+class _DesignHeaderScrollScope extends InheritedWidget {
+  const _DesignHeaderScrollScope({
+    required this.state,
+    required super.child,
+  });
+
+  final _CollapsibleDesignBodyState state;
+
+  static _CollapsibleDesignBodyState? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_DesignHeaderScrollScope>()
+          ?.state;
 
   @override
-  ScrollPhysics getScrollPhysics(BuildContext context) =>
-      AlwaysScrollableScrollPhysics(parent: super.getScrollPhysics(context));
+  bool updateShouldNotify(_DesignHeaderScrollScope oldWidget) => false;
 }
+
+/// [ScrollBehavior] for bodies under a [CollapsibleDesignBody]: always
+/// scrollable, and forward user drags collapse the header before the list
+/// scrolls.
+class _DesignScrollBehavior extends MaterialScrollBehavior {
+  const _DesignScrollBehavior({this.state});
+
+  /// The enclosing header state, when the scrollable lives under a
+  /// [CollapsibleDesignBody]. Null when used outside one.
+  final _CollapsibleDesignBodyState? state;
+
+  @override
+  ScrollPhysics getScrollPhysics(BuildContext context) {
+    final state = this.state;
+    final alwaysScrollable = AlwaysScrollableScrollPhysics(
+      parent: super.getScrollPhysics(context),
+    );
+    if (state == null) {
+      return alwaysScrollable;
+    }
+    return _DesignHeaderScrollPhysics(state: state, parent: alwaysScrollable);
+  }
+}
+
+/// Physics that hand the forward (scroll-down) part of a user drag to the
+/// collapsible header first, so the header collapses before the list starts
+/// scrolling (collapse-first ordering). The leftover delta then scrolls the
+/// list normally.
+class _DesignHeaderScrollPhysics extends ScrollPhysics {
+  const _DesignHeaderScrollPhysics({required this.state, super.parent});
+
+  final _CollapsibleDesignBodyState state;
+
+  @override
+  _DesignHeaderScrollPhysics applyTo(ScrollPhysics child) =>
+      _DesignHeaderScrollPhysics(state: state, parent: child);
+
+  @override
+  double applyPhysicsToUserOffset(double offset) {
+    if (offset >= 0 || state._headerDragging || !state.mounted) {
+      return super.applyPhysicsToUserOffset(offset);
+    }
+    // Forward (negative-offset) drag collapses the header first; the list
+    // receives only the leftover, so content stays pinned until the header
+    // is fully collapsed.
+    final leftover = state._consumeForwardUserOffset(-offset);
+    return super.applyPhysicsToUserOffset(-leftover);
+  }
+
+  @override
+  String toString() => '$_DesignHeaderScrollPhysics(state)';
+}
+

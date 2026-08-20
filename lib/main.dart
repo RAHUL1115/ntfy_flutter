@@ -742,58 +742,44 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
         icon: const Icon(Icons.cloud_off_outlined),
       ),
     if (_globalPolicy != null)
-      Hero(
-        tag: 'notification-bell',
-        transitionOnUserGestures: true,
-        child: Material(
-          color: Colors.transparent,
-          child: IconButton(
-            key: const Key('global-notification-state'),
-            tooltip: tr(
-              context,
+      IconButton(
+        key: const Key('global-notification-state'),
+        tooltip: tr(
+          context,
+          _globalPolicy!.mutedUntilEpochSeconds == 0
+              ? 'Notifications enabled'
+              : 'Notifications muted; tap to enable',
+        ),
+        onPressed: _toggleGlobalNotifications,
+        icon: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Icon(
               _globalPolicy!.mutedUntilEpochSeconds == 0
-                  ? 'Notifications enabled'
-                  : 'Notifications muted; tap to enable',
+                  ? Icons.notifications_none
+                  : Icons.notifications_off_outlined,
             ),
-            onPressed: _toggleGlobalNotifications,
-            icon: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(
-                  _globalPolicy!.mutedUntilEpochSeconds == 0
-                      ? Icons.notifications_none
-                      : Icons.notifications_off_outlined,
-                ),
-                if (_subscriptions?.any(
-                      (subscription) => subscription.unreadCount != 0,
-                    ) ==
-                    true)
-                  Positioned(
-                    top: -2,
-                    right: -2,
-                    child: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
+            if (_subscriptions?.any(
+                  (subscription) => subscription.unreadCount != 0,
+                ) ==
+                true)
+              Positioned(
+                top: -2,
+                right: -2,
+                child: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primary,
+                    shape: BoxShape.circle,
                   ),
-              ],
-            ),
-          ),
+                ),
+              ),
+          ],
         ),
       ),
     PopupMenuButton<_HomeAction>(
-      icon: const Hero(
-        tag: 'overflow-menu',
-        transitionOnUserGestures: true,
-        child: Material(
-          color: Colors.transparent,
-          child: Icon(Icons.more_vert),
-        ),
-      ),
+      icon: const Icon(Icons.more_vert),
       position: PopupMenuPosition.under,
       offset: const Offset(-8, -4),
       constraints: const BoxConstraints.tightFor(width: 200),
@@ -857,7 +843,6 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
         child: RefreshIndicator(
           onRefresh: _manualRefresh,
           child: ListView.separated(
-            physics: const AlwaysScrollableScrollPhysics(),
             itemCount: subscriptions.length,
             separatorBuilder: (_, _) => const SizedBox.shrink(),
             itemBuilder: (context, index) {
@@ -901,25 +886,18 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Hero(
-                                  tag: 'topic-title-${subscription.id}',
-                                  transitionOnUserGestures: true,
-                                  child: Material(
-                                    color: Colors.transparent,
-                                    child: LText(
-                                      subscription.displayName ??
-                                          Uri.parse(subscription.url)
-                                              .pathSegments
-                                              .last,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .titleMedium
-                                          ?.copyWith(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                    ),
-                                  ),
+                                LText(
+                                  subscription.displayName ??
+                                      Uri.parse(subscription.url)
+                                          .pathSegments
+                                          .last,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                 ),
                                 const SizedBox(height: 2),
                                 LText(
