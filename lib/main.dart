@@ -186,9 +186,8 @@ class _NtfyAppState extends State<NtfyApp> {
         final scale = _fontScale;
         if (scale == null || child == null) return child ?? const SizedBox();
         return MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(scale)),
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(scale)),
           child: child,
         );
       },
@@ -386,13 +385,13 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
           onReportBug: () => _openExternal(
             Uri.parse('https://github.com/RAHUL1115/ntfy_flutter/issues'),
           ),
-          onDocumentation: () => _openExternal(Uri.parse('https://ntfy.sh/docs')),
+          onDocumentation: () =>
+              _openExternal(Uri.parse('https://ntfy.sh/docs')),
         ),
       ),
     );
     await _loadGlobalPolicy();
   }
-
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -863,9 +862,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
                                       Uri.parse(subscription.url)
                                           .pathSegments
                                           .last,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
+                                  style: Theme.of(context).textTheme.titleMedium
                                       ?.copyWith(
                                         fontSize: 16,
                                         fontWeight: FontWeight.w700,
@@ -993,6 +990,7 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
   bool _saving = false;
   bool _useAnotherServer = false;
   bool _showLogin = false;
+  bool _obscurePassword = true;
 
   @override
   void initState() {
@@ -1058,6 +1056,7 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
     setState(() {
       _pendingUrl = url;
       _showLogin = true;
+      _obscurePassword = true;
       _saving = false;
       _error = null;
     });
@@ -1178,11 +1177,31 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
                           key: const Key('server-password-field'),
                           controller: _passwordController,
                           enabled: !_saving,
-                          obscureText: true,
+                          obscureText: _obscurePassword,
                           onChanged: (_) => setState(() => _error = null),
                           decoration: InputDecoration(
                             labelText: tr(context, 'Password').toUpperCase(),
                             errorText: _error,
+                            suffixIcon: IconButton(
+                              key: const Key('server-password-visibility'),
+                              tooltip: tr(
+                                context,
+                                _obscurePassword
+                                    ? 'Show password'
+                                    : 'Hide password',
+                              ),
+                              onPressed: _saving
+                                  ? null
+                                  : () => setState(
+                                      () =>
+                                          _obscurePassword = !_obscurePassword,
+                                    ),
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_outlined
+                                    : Icons.visibility_off_outlined,
+                              ),
+                            ),
                           ),
                         ),
                       ]

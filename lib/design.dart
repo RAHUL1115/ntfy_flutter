@@ -27,6 +27,11 @@ const _slateDark = Color(0xffbfc9c5);
 const _outlineDark = Color(0xff3d4a47);
 const _hairlineDark = Color(0xff28322f);
 
+Color _accentShadow(Color accent) {
+  final hsl = HSLColor.fromColor(accent);
+  return hsl.withLightness(hsl.lightness * 0.35).toColor();
+}
+
 /// Offset shadow used under raised surfaces (FAB, primary actions).
 const hardShadowOffset = Offset(0, 2);
 
@@ -77,7 +82,7 @@ const _darkScheme = ColorScheme.dark(
   surfaceContainerHighest: _hairlineDark,
   outline: _outlineDark,
   outlineVariant: _hairlineDark,
-  shadow: Color(0xff000000),
+  shadow: Color(0xff123d34),
 );
 
 /// Type scale of the design. The mockups use Hanken Grotesk for headings and
@@ -172,7 +177,7 @@ ThemeData designAccentTheme({
       secondaryContainer: generated.primaryContainer,
       onSecondaryContainer: generated.onPrimaryContainer,
       inversePrimary: generated.inversePrimary,
-      shadow: generated.shadow,
+      shadow: _accentShadow(generated.primary),
     ),
   );
 }
@@ -183,13 +188,18 @@ ThemeData designAppTheme({
   ColorScheme? dynamicScheme,
 }) {
   if (accent == AppAccentPreference.dynamic && dynamicScheme != null) {
-    return designTheme(brightness: brightness, colorScheme: dynamicScheme);
+    return designTheme(
+      brightness: brightness,
+      colorScheme: dynamicScheme.copyWith(
+        shadow: _accentShadow(dynamicScheme.primary),
+      ),
+    );
   }
   final seed = switch (accent) {
     AppAccentPreference.blue => const Color(0xff0057b8),
     AppAccentPreference.violet => const Color(0xff6750a4),
     AppAccentPreference.rose => const Color(0xffa31545),
-    AppAccentPreference.orange => const Color(0xff9c4300),
+    AppAccentPreference.orange => const Color(0xffed4137),
     AppAccentPreference.ntfyTeal || AppAccentPreference.dynamic => null,
   };
   return seed == null
@@ -587,7 +597,9 @@ class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete>
                   context,
                   _revealed ? 'Delete' : 'Reveal delete action',
                 ),
-              ): _revealed ? _delete : _reveal,
+              ): _revealed
+                  ? _delete
+                  : _reveal,
             },
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -877,9 +889,9 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
         _lastExpandExcess = 0;
       case ScrollUpdateNotification(:final scrollDelta)
           when _dragging &&
-                scrollDelta != null &&
-                notification.metrics.pixels >
-                    notification.metrics.minScrollExtent:
+              scrollDelta != null &&
+              notification.metrics.pixels >
+                  notification.metrics.minScrollExtent:
         if (scrollDelta > 0) {
           // The list itself is moving into its content under the drag, so
           // settle the header collapsed — but keep the drag live so the
@@ -999,7 +1011,6 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
     );
   }
 }
-
 
 /// [ScrollBehavior] for bodies under a [CollapsibleDesignBody]: always
 /// scrollable, and forward user drags collapse the header before the list

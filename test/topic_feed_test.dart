@@ -16,6 +16,7 @@ void main() {
       final expectedAuthorization =
           'Basic ${base64Encode(utf8.encode('rahul:secret'))}';
       final seenAuthorization = <String?>[];
+      final seenQueries = <Map<String, String>>[];
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
       server.listen((request) async {
@@ -23,6 +24,7 @@ void main() {
           HttpHeaders.authorizationHeader,
         );
         seenAuthorization.add(authorization);
+        seenQueries.add(request.uri.queryParameters);
         if (authorization != expectedAuthorization) {
           request.response.statusCode = HttpStatus.forbidden;
         } else {
@@ -66,6 +68,11 @@ void main() {
         null,
         expectedAuthorization,
         expectedAuthorization,
+      ]);
+      expect(seenQueries, [
+        {'poll': '1'},
+        {'poll': '1'},
+        {'poll': '1'},
       ]);
     },
   );

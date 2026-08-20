@@ -95,7 +95,7 @@ class HttpSubscriptionAccessChecker implements SubscriptionAccessChecker {
     final uri = buildFeedUri(
       topicUrl,
       null,
-    ).replace(queryParameters: {'poll': '1', 'since': 'latest'});
+    ).replace(queryParameters: {'poll': '1'});
     final profile = await profiles.profileFor(topicUri);
     final client = HttpClient(context: profile.securityContext)
       ..connectionTimeout = timeout;

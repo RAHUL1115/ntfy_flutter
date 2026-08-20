@@ -1487,7 +1487,10 @@ class _AccountsScreenState extends State<_AccountsScreen> {
   }
 
   Future<void> _add() async {
-    final server = TextEditingController(text: 'https://ntfy.sh');
+    final defaultServer =
+        (await widget.repository.loadSettings()).defaultServer;
+    if (!mounted) return;
+    final server = TextEditingController(text: defaultServer);
     final username = TextEditingController();
     final password = TextEditingController();
     final account = await showDialog<ServerAccount>(

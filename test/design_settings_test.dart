@@ -4,34 +4,40 @@ import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/design.dart';
 
 void main() {
-  test('font-size choices preserve system scaling or use documented overrides', () {
-    expect(appFontScaleFactor(AppFontScalePreference.system), isNull);
-    expect(appFontScaleFactor(AppFontScalePreference.small), 0.9);
-    expect(appFontScaleFactor(AppFontScalePreference.standard), 1.0);
-    expect(appFontScaleFactor(AppFontScalePreference.large), 1.15);
-    expect(appFontScaleFactor(AppFontScalePreference.extraLarge), 1.3);
-  });
+  test(
+    'font-size choices preserve system scaling or use documented overrides',
+    () {
+      expect(appFontScaleFactor(AppFontScalePreference.system), isNull);
+      expect(appFontScaleFactor(AppFontScalePreference.small), 0.9);
+      expect(appFontScaleFactor(AppFontScalePreference.standard), 1.0);
+      expect(appFontScaleFactor(AppFontScalePreference.large), 1.15);
+      expect(appFontScaleFactor(AppFontScalePreference.extraLarge), 1.3);
+    },
+  );
 
-  test('every accent has readable primary contrast in light and dark modes', () {
-    for (final brightness in Brightness.values) {
-      final dynamicScheme = ColorScheme.fromSeed(
-        seedColor: const Color(0xff336699),
-        brightness: brightness,
-      );
-      for (final accent in AppAccentPreference.values) {
-        final scheme = designAppTheme(
+  test(
+    'every accent has readable primary contrast in light and dark modes',
+    () {
+      for (final brightness in Brightness.values) {
+        final dynamicScheme = ColorScheme.fromSeed(
+          seedColor: const Color(0xff336699),
           brightness: brightness,
-          accent: accent,
-          dynamicScheme: dynamicScheme,
-        ).colorScheme;
-        expect(
-          _contrastRatio(scheme.primary, scheme.onPrimary),
-          greaterThanOrEqualTo(4.5),
-          reason: '${accent.name} ${brightness.name} primary contrast',
         );
+        for (final accent in AppAccentPreference.values) {
+          final scheme = designAppTheme(
+            brightness: brightness,
+            accent: accent,
+            dynamicScheme: dynamicScheme,
+          ).colorScheme;
+          expect(
+            _contrastRatio(scheme.primary, scheme.onPrimary),
+            greaterThanOrEqualTo(4.5),
+            reason: '${accent.name} ${brightness.name} primary contrast',
+          );
+        }
       }
-    }
-  });
+    },
+  );
 
   test('dynamic accent uses the supplied Android color scheme', () {
     final dynamicScheme = ColorScheme.fromSeed(
@@ -44,7 +50,39 @@ void main() {
       dynamicScheme: dynamicScheme,
     ).colorScheme;
 
-    expect(actual, dynamicScheme);
+    expect(actual.primary, dynamicScheme.primary);
+    expect(actual.shadow, isNot(dynamicScheme.shadow));
+  });
+
+  test('raised surfaces use a darker accent instead of a black shadow', () {
+    for (final brightness in Brightness.values) {
+      for (final accent in AppAccentPreference.values) {
+        final scheme = designAppTheme(
+          brightness: brightness,
+          accent: accent,
+          dynamicScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xff336699),
+            brightness: brightness,
+          ),
+        ).colorScheme;
+        expect(scheme.shadow, isNot(Colors.black));
+        expect(
+          scheme.shadow.computeLuminance(),
+          lessThan(scheme.primary.computeLuminance()),
+        );
+      }
+    }
+  });
+
+  test('orange accent follows the bundled app icon color', () {
+    final expected = ColorScheme.fromSeed(seedColor: const Color(0xffed4137))
+        .primary;
+    final actual = designAppTheme(
+      brightness: Brightness.light,
+      accent: AppAccentPreference.orange,
+    ).colorScheme.primary;
+
+    expect(actual, expected);
   });
 }
 

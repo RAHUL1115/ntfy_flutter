@@ -669,6 +669,13 @@ void main() {
     expect(await store.all(), isEmpty);
     expect(await settings.loadAccounts(), isEmpty);
 
+    final passwordField = find.byKey(const Key('server-password-field'));
+    expect(tester.widget<TextField>(passwordField).obscureText, isTrue);
+    await tester.tap(find.byKey(const Key('server-password-visibility')));
+    await tester.pump();
+    expect(tester.widget<TextField>(passwordField).obscureText, isFalse);
+    expect(find.byTooltip('Hide password'), findsOneWidget);
+
     await tester.tap(find.byTooltip('Back'));
     await tester.pumpAndSettle();
     expect(find.text('Subscribe to topic'), findsOneWidget);
@@ -824,6 +831,9 @@ void main() {
       preferences: _MemoryPreferences(),
       secrets: _MemorySecrets(),
     );
+    await settings.saveSettings(
+      const AppSettings(defaultServer: 'https://example.com/base/'),
+    );
     await tester.pumpWidget(NtfyApp(store: store, settings: settings));
     await tester.pumpAndSettle();
 
@@ -844,6 +854,10 @@ void main() {
     );
     expect(tester.getSize(dialog).width, greaterThanOrEqualTo(500));
     expect(fields, findsNWidgets(3));
+    expect(
+      tester.widget<TextField>(fields.first).controller?.text,
+      'https://example.com/base/',
+    );
     expect(
       tester.getTopLeft(fields.at(1)).dy -
           tester.getBottomLeft(fields.at(0)).dy,
