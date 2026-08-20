@@ -732,6 +732,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         }
       },
       child: Scaffold(
+        resizeToAvoidBottomInset: false,
         body: CollapsibleDesignBody(
           scrollController: _scrollController,
           forceCollapsed: _searching,
