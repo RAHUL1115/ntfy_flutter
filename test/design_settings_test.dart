@@ -54,23 +54,30 @@ void main() {
     expect(actual.shadow, isNot(dynamicScheme.shadow));
   });
 
-  test('raised surfaces use a darker accent instead of a black shadow', () {
-    for (final brightness in Brightness.values) {
-      for (final accent in AppAccentPreference.values) {
-        final scheme = designAppTheme(
-          brightness: brightness,
-          accent: accent,
-          dynamicScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xff336699),
-            brightness: brightness,
-          ),
-        ).colorScheme;
-        expect(scheme.shadow, isNot(Colors.black));
-        expect(
-          scheme.shadow.computeLuminance(),
-          lessThan(scheme.primary.computeLuminance()),
-        );
-      }
+  test('raised surfaces use accent shadows only in light mode', () {
+    for (final accent in AppAccentPreference.values) {
+      final lightScheme = designAppTheme(
+        brightness: Brightness.light,
+        accent: accent,
+        dynamicScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xff336699),
+        ),
+      ).colorScheme;
+      expect(lightScheme.shadow, isNot(Colors.black));
+      expect(
+        lightScheme.shadow.computeLuminance(),
+        lessThan(lightScheme.primary.computeLuminance()),
+      );
+
+      final darkScheme = designAppTheme(
+        brightness: Brightness.dark,
+        accent: accent,
+        dynamicScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xff336699),
+          brightness: Brightness.dark,
+        ),
+      ).colorScheme;
+      expect(darkScheme.shadow, Colors.black);
     }
   });
 

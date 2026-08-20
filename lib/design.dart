@@ -82,7 +82,7 @@ const _darkScheme = ColorScheme.dark(
   surfaceContainerHighest: _hairlineDark,
   outline: _outlineDark,
   outlineVariant: _hairlineDark,
-  shadow: Color(0xff123d34),
+  shadow: Colors.black,
 );
 
 /// Type scale of the design. The mockups use Hanken Grotesk for headings and
@@ -177,7 +177,9 @@ ThemeData designAccentTheme({
       secondaryContainer: generated.primaryContainer,
       onSecondaryContainer: generated.onPrimaryContainer,
       inversePrimary: generated.inversePrimary,
-      shadow: _accentShadow(generated.primary),
+      shadow: brightness == Brightness.dark
+          ? Colors.black
+          : _accentShadow(generated.primary),
     ),
   );
 }
@@ -191,7 +193,9 @@ ThemeData designAppTheme({
     return designTheme(
       brightness: brightness,
       colorScheme: dynamicScheme.copyWith(
-        shadow: _accentShadow(dynamicScheme.primary),
+        shadow: brightness == Brightness.dark
+            ? Colors.black
+            : _accentShadow(dynamicScheme.primary),
       ),
     );
   }

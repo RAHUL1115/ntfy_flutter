@@ -45,35 +45,38 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     body: CollapsibleDesignBody(
       title: const LText('Settings'),
-      child: ListView(
-        children: [
-          if (policies != null)
-            _NotificationPolicySettings(
-              policies: policies!,
-              retention: retention,
-              trailingRows: [
-                _BackgroundListeningSettings(session: backgroundListening),
-              ],
-            )
-          else ...[
-            const _SectionHeader('Notifications'),
-            _SettingsPanel(
-              children: [
-                _RetentionSettings(retention: retention),
-                _BackgroundListeningSettings(session: backgroundListening),
-              ],
-            ),
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (policies != null)
+              _NotificationPolicySettings(
+                policies: policies!,
+                retention: retention,
+                trailingRows: [
+                  _BackgroundListeningSettings(session: backgroundListening),
+                ],
+              )
+            else ...[
+              const _SectionHeader('Notifications'),
+              _SettingsPanel(
+                children: [
+                  _RetentionSettings(retention: retention),
+                  _BackgroundListeningSettings(session: backgroundListening),
+                ],
+              ),
+            ],
+            if (settings != null)
+              _AppSettingsPanel(
+                repository: settings!,
+                database: database,
+                onChanged: onSettingsChanged,
+                onCheckForUpdates: onCheckForUpdates,
+                onReportBug: onReportBug,
+                onDocumentation: onDocumentation,
+              ),
           ],
-          if (settings != null)
-            _AppSettingsPanel(
-              repository: settings!,
-              database: database,
-              onChanged: onSettingsChanged,
-              onCheckForUpdates: onCheckForUpdates,
-              onReportBug: onReportBug,
-              onDocumentation: onDocumentation,
-            ),
-        ],
+        ),
       ),
     ),
   );

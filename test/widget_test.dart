@@ -10,6 +10,7 @@ import 'package:ntfy_flutter/design.dart';
 import 'package:ntfy_flutter/main.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/notifications.dart';
+import 'package:ntfy_flutter/notification_policy.dart';
 import 'package:ntfy_flutter/ntfy_topic_icon.dart';
 import 'package:ntfy_flutter/retention.dart';
 import 'package:ntfy_flutter/retention_settings.dart';
@@ -870,6 +871,63 @@ void main() {
     );
   });
 
+  testWidgets('settings sections stay mounted while scrolling back', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(420, 933);
+    addTearDown(tester.view.resetPhysicalSize);
+    final policies = _CountingPolicyRepository();
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: SettingsScreen(
+          retention: RetentionSession(store),
+          backgroundListening: BackgroundListeningSession(
+            store,
+            _RecordingBackgroundHost(),
+          ),
+          policies: policies,
+          settings: settings,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(policies.loadCalls, 1);
+
+    final scrollable = find.byType(Scrollable).last;
+    final position = tester.state<ScrollableState>(scrollable).position;
+
+    Future<void> dragInSteps(double dy) async {
+      final gesture = await tester.startGesture(tester.getCenter(scrollable));
+      for (var index = 0; index < 10; index++) {
+        await gesture.moveBy(Offset(0, dy / 10));
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await gesture.up();
+      await tester.pumpAndSettle();
+    }
+
+    await dragInSteps(-300);
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pumpAndSettle();
+    await dragInSteps(550);
+    await dragInSteps(200);
+    final before = position.pixels;
+    await dragInSteps(180);
+
+    expect(before - position.pixels, lessThanOrEqualTo(220));
+    expect(policies.loadCalls, 1);
+
+    position.jumpTo(position.minScrollExtent);
+    await tester.pump();
+    await dragInSteps(300);
+  });
+
   testWidgets('default server dialog opens wide', (tester) async {
     final settings = AppSettingsStore(
       preferences: _MemoryPreferences(),
@@ -1427,6 +1485,32 @@ class _AllowAccessChecker implements SubscriptionAccessChecker {
     required String topicUrl,
     ServerAccount? account,
   }) async => SubscriptionAccess.allowed;
+}
+
+class _CountingPolicyRepository implements NotificationPolicyRepository {
+  var loadCalls = 0;
+  var policy = const NotificationPolicy();
+
+  @override
+  Future<NotificationPolicy> loadNotificationPolicy({
+    int? subscriptionId,
+  }) async {
+    loadCalls++;
+    return policy;
+  }
+
+  @override
+  Future<void> setGlobalNotificationPolicy(NotificationPolicy value) async {
+    policy = value;
+  }
+
+  @override
+  Future<void> setTopicNotificationPolicy(
+    int subscriptionId,
+    NotificationPolicy? value,
+  ) async {
+    if (value != null) policy = value;
+  }
 }
 
 class _MemorySubscriptionRepository
