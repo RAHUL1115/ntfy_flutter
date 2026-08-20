@@ -928,6 +928,68 @@ void main() {
     await dragInSteps(300);
   });
 
+  testWidgets('settings keeps its final panel above the bottom safe area', (
+    tester,
+  ) async {
+    const pixelRatio = 2.0;
+    tester.view.devicePixelRatio = pixelRatio;
+    addTearDown(() {
+      tester.view
+        ..resetViewPadding()
+        ..resetPhysicalSize()
+        ..resetDevicePixelRatio();
+    });
+
+    for (final scenario in const [
+      (size: Size(420, 933), bottomInset: 24.0, textScale: 1.0),
+      (size: Size(933, 420), bottomInset: 24.0, textScale: 1.0),
+      (size: Size(420, 933), bottomInset: 0.0, textScale: 1.0),
+      (size: Size(420, 933), bottomInset: 24.0, textScale: 2.0),
+    ]) {
+      tester.view.physicalSize = scenario.size * pixelRatio;
+      tester.view.viewPadding = FakeViewPadding(
+        bottom: scenario.bottomInset * pixelRatio,
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: lightTheme,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: TextScaler.linear(scenario.textScale)),
+            child: child!,
+          ),
+          home: SettingsScreen(
+            retention: RetentionSession(store),
+            backgroundListening: BackgroundListeningSession(
+              store,
+              _RecordingBackgroundHost(),
+            ),
+            settings: AppSettingsStore(
+              preferences: _MemoryPreferences(),
+              secrets: _MemorySecrets(),
+            ),
+            onDocumentation: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final scroll = find.byKey(const Key('settings-scroll'));
+      final position = tester
+          .state<ScrollableState>(
+            find.descendant(of: scroll, matching: find.byType(Scrollable)),
+          )
+          .position;
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+
+      final panelBottom = tester
+          .getBottomLeft(find.byKey(const Key('about-settings-panel')))
+          .dy;
+      final navigationBoundary = scenario.size.height - scenario.bottomInset;
+      expect(navigationBoundary - panelBottom, greaterThanOrEqualTo(20));
+    }
+  });
+
   testWidgets(
     'background setup prompts persist actions and refresh listeners',
     (tester) async {

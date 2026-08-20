@@ -48,6 +48,10 @@ class SettingsScreen extends StatelessWidget {
     body: CollapsibleDesignBody(
       title: const LText('Settings'),
       child: SingleChildScrollView(
+        key: const Key('settings-scroll'),
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewPaddingOf(context).bottom + 20,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1565,6 +1569,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel>
         ),
         const _SectionHeader('About'),
         _SettingsPanel(
+          key: const Key('about-settings-panel'),
           children: [
             FutureBuilder<PackageInfo>(
               future: PackageInfo.fromPlatform(),
@@ -2101,7 +2106,7 @@ class _PanelRows extends StatelessWidget {
 
 /// Hairline-outlined surface grouping the rows that follow a section heading.
 class _SettingsPanel extends StatelessWidget {
-  const _SettingsPanel({required this.children});
+  const _SettingsPanel({required this.children, super.key});
 
   final List<Widget> children;
 
