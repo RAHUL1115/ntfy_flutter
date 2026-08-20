@@ -855,8 +855,8 @@ class _DesignHeaderScrollPhysics extends ScrollPhysics {
   final _CollapsibleDesignBodyState state;
 
   @override
-  _DesignHeaderScrollPhysics applyTo(ScrollPhysics child) =>
-      _DesignHeaderScrollPhysics(state: state, parent: child);
+  _DesignHeaderScrollPhysics applyTo(ScrollPhysics? child) =>
+      _DesignHeaderScrollPhysics(state: state, parent: buildParent(child));
 
   @override
   double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
