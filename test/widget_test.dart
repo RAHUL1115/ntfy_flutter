@@ -761,14 +761,16 @@ void main() {
     await tester.pumpAndSettle();
 
     final accent = find.byKey(const Key('accent-color-setting'));
-    await tester.ensureVisible(accent);
+    await tester.scrollUntilVisible(accent, 300);
+    await tester.pumpAndSettle();
     await tester.tap(accent);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Blue'));
     await tester.pumpAndSettle();
 
     final fontSize = find.byKey(const Key('font-size-setting'));
-    await tester.ensureVisible(fontSize);
+    await tester.scrollUntilVisible(fontSize, 300);
+    await tester.pumpAndSettle();
     await tester.tap(fontSize);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Large'));
@@ -777,7 +779,7 @@ void main() {
     final messageOrder = find.byKey(
       const Key('new-messages-at-bottom-setting'),
     );
-    await tester.ensureVisible(messageOrder);
+    await tester.scrollUntilVisible(messageOrder, 300);
     await tester.pumpAndSettle();
     await tester.tap(messageOrder);
     await tester.pumpAndSettle();

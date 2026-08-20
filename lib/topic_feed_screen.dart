@@ -1010,7 +1010,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         return DesignSwipeToDelete(
           dismissKey: ValueKey('dismiss-message-${message.localId}'),
           onDelete: () => _deleteMessage(message),
-          backgroundMargin: const EdgeInsets.fromLTRB(0, 6, 16, 6),
+          backgroundMargin: const EdgeInsets.fromLTRB(0, 5, 16, 5),
           child: _MessageCard(
             key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),
             message: message,
@@ -1407,34 +1407,36 @@ class _MessageBar extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: TweenAnimationBuilder<double>(
-                      tween: Tween(begin: 0, end: 1),
-                      duration: MediaQuery.disableAnimationsOf(context)
-                          ? Duration.zero
-                          : const Duration(milliseconds: 300),
-                      curve: Curves.easeOutCubic,
-                      builder: (context, value, child) => Transform.scale(
-                        alignment: Alignment.centerRight,
-                        scaleX: value,
-                        child: Opacity(opacity: value, child: child),
-                      ),
-                      child: Semantics(
-                        container: true,
-                        explicitChildNodes: true,
-                        label: tr(context, 'Message'),
-                        child: TextField(
-                          key: const Key('quick-message-field'),
-                          controller: controller,
-                          enabled: !sending,
-                          minLines: 1,
-                          maxLines: 4,
-                          decoration: InputDecoration(
-                            hintText: tr(context, 'Type a message here'),
-                            isDense: true,
-                            constraints: const BoxConstraints(minHeight: 48),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 12,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 48),
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0, end: 1),
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : const Duration(milliseconds: 300),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) => Transform.scale(
+                          alignment: Alignment.centerRight,
+                          scaleX: value,
+                          child: Opacity(opacity: value, child: child),
+                        ),
+                        child: Semantics(
+                          container: true,
+                          explicitChildNodes: true,
+                          label: tr(context, 'Message'),
+                          child: TextField(
+                            key: const Key('quick-message-field'),
+                            controller: controller,
+                            enabled: !sending,
+                            minLines: 1,
+                            maxLines: 4,
+                            decoration: InputDecoration(
+                              hintText: tr(context, 'Type a message here'),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 18,
+                                vertical: 12,
+                              ),
                             ),
                           ),
                         ),
