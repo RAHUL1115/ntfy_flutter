@@ -10,8 +10,7 @@ void main() {
       expect(appFontScaleFactor(AppFontScalePreference.system), isNull);
       expect(appFontScaleFactor(AppFontScalePreference.small), 0.9);
       expect(appFontScaleFactor(AppFontScalePreference.standard), 1.0);
-      expect(appFontScaleFactor(AppFontScalePreference.large), 1.15);
-      expect(appFontScaleFactor(AppFontScalePreference.extraLarge), 1.3);
+      expect(appFontScaleFactor(AppFontScalePreference.large), 1.0);
     },
   );
 

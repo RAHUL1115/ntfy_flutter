@@ -10,15 +10,14 @@ enum AppThemePreference { system, light, dark }
 
 enum AppAccentPreference { ntfyTeal, dynamic, blue, violet, rose, orange }
 
-enum AppFontScalePreference { system, small, standard, large, extraLarge }
+enum AppFontScalePreference { system, small, standard, large }
 
 double? appFontScaleFactor(AppFontScalePreference preference) =>
     switch (preference) {
       AppFontScalePreference.system => null,
       AppFontScalePreference.small => 0.9,
       AppFontScalePreference.standard => 1.0,
-      AppFontScalePreference.large => 1.15,
-      AppFontScalePreference.extraLarge => 1.3,
+      AppFontScalePreference.large => 1.0,
     };
 
 enum ConnectionProtocol { http, websocket }
@@ -68,7 +67,7 @@ class AppSettings {
     this.theme = AppThemePreference.system,
     AppAccentPreference accentColor = AppAccentPreference.ntfyTeal,
     bool? dynamicColors,
-    this.fontScale = AppFontScalePreference.system,
+    this.fontScale = AppFontScalePreference.large,
     this.messageBar = MessageBarPreference.enabled,
     this.newMessagesAtBottom = false,
     this.connectionAlertSeconds = 0,
@@ -208,11 +207,13 @@ class AppSettings {
             ? AppAccentPreference.dynamic
             : AppAccentPreference.ntfyTeal,
       ),
-      fontScale: enumValue(
-        AppFontScalePreference.values,
-        'fontScale',
-        AppFontScalePreference.system,
-      ),
+      fontScale: value['fontScale'] == 'extraLarge'
+          ? AppFontScalePreference.large
+          : enumValue(
+              AppFontScalePreference.values,
+              'fontScale',
+              AppFontScalePreference.large,
+            ),
       messageBar: enumValue(
         MessageBarPreference.values,
         'messageBar',

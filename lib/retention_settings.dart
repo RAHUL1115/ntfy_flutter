@@ -1341,7 +1341,6 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel>
                 AppFontScalePreference.small => 'Small',
                 AppFontScalePreference.standard => 'Default',
                 AppFontScalePreference.large => 'Large',
-                AppFontScalePreference.extraLarge => 'Extra large',
               }),
               onTap: () async {
                 final value = await _choose('Font size', const [
@@ -1349,7 +1348,6 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel>
                   ('Small', AppFontScalePreference.small),
                   ('Default', AppFontScalePreference.standard),
                   ('Large', AppFontScalePreference.large),
-                  ('Extra large', AppFontScalePreference.extraLarge),
                 ], selected: settings.fontScale);
                 if (value != null) {
                   await _save(settings.copyWith(fontScale: value));

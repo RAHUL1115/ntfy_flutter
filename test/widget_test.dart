@@ -1178,7 +1178,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(fontSize);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Large'));
+    expect(find.text('Extra large'), findsNothing);
+    await tester.tap(find.text('Large').last);
     await tester.pumpAndSettle();
 
     final messageOrder = find.byKey(
