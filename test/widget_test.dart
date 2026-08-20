@@ -543,7 +543,7 @@ void main() {
     expect((await store.all()).single.displayName, 'Production');
   });
 
-  testWidgets('subscription delete action commits after undo expires', (
+  testWidgets('subscription delete action commits when undo closes', (
     tester,
   ) async {
     await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
@@ -561,7 +561,9 @@ void main() {
     await tester.pump();
     expect(find.text('Production'), findsNothing);
 
-    await tester.pump(const Duration(seconds: 5));
+    tester
+        .state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger))
+        .hideCurrentSnackBar();
     await tester.pumpAndSettle();
     expect(await store.all(), isEmpty);
   });
