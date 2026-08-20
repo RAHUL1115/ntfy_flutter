@@ -81,6 +81,28 @@ class MessageNotificationAdapterTest {
     }
 
     @Test
+    fun testEligibleFullScreenAlertUsesMaximumImportanceFallback() {
+        assertEquals(
+            PackageManager.PERMISSION_GRANTED,
+            instrumentation.targetContext.packageManager.checkPermission(
+                Manifest.permission.USE_FULL_SCREEN_INTENT,
+                instrumentation.targetContext.packageName,
+            ),
+        )
+        assertTrue(
+            MessageNotificationAdapter.show(
+                instrumentation.targetContext,
+                request(1) + ("fullScreenEligible" to true),
+            ),
+        )
+
+        val notification = awaitActiveNotifications(1).single().notification
+        assertEquals("ntfy-max", notification.channelId)
+        assertTrue(notification.extras.getBoolean("notification.fullScreenEligible"))
+        assertNull(notification.fullScreenIntent)
+    }
+
+    @Test
     fun testTapPayloadIsDistinctAndConsumedOnce() {
         val request = request(4)
         assertTrue(MessageNotificationAdapter.show(instrumentation.targetContext, request))

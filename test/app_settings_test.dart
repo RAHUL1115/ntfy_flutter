@@ -31,6 +31,8 @@ void main() {
         batteryPromptAfterEpochSeconds: 100,
         websocketPromptAfterEpochSeconds: 200,
         exactAlarmPromptAfterEpochSeconds: dismissedSetupPrompt,
+        fullScreenAlertsEnabled: true,
+        fullScreenAlertTags: ['urgent', 'call'],
         broadcastsEnabled: false,
         unifiedPushEnabled: true,
         recordLogs: true,

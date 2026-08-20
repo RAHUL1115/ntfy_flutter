@@ -706,6 +706,13 @@ Future<void> backgroundMain() async {
         policies: store,
         broadcastsEnabled: () async =>
             (await settings.loadSettings()).broadcastsEnabled,
+        fullScreenAlertSettings: () async {
+          final value = await settings.loadSettings();
+          return FullScreenAlertSettings(
+            enabled: value.fullScreenAlertsEnabled,
+            tags: value.fullScreenAlertTags,
+          );
+        },
         iconLoader: (uri) =>
             AttachmentService(profiles: settings)
                 .fetchBytes(uri, maxBytes: 1024 * 1024),

@@ -2,6 +2,7 @@ package com.rahul1115.ntfy_flutter
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -104,6 +105,17 @@ class MainActivity : FlutterActivity() {
                     openExactAlarmSettings()
                     result.success(null)
                 }
+                "isFullScreenIntentAllowed" -> {
+                    val allowed =
+                        Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE ||
+                            getSystemService(NotificationManager::class.java)
+                                .canUseFullScreenIntent()
+                    result.success(allowed)
+                }
+                "openFullScreenIntentSettings" -> {
+                    openFullScreenIntentSettings()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -188,6 +200,15 @@ class MainActivity : FlutterActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
         val intent = Intent(
             Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+            Uri.parse("package:$packageName"),
+        )
+        if (intent.resolveActivity(packageManager) != null) startActivity(intent)
+    }
+
+    private fun openFullScreenIntentSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        val intent = Intent(
+            Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
             Uri.parse("package:$packageName"),
         )
         if (intent.resolveActivity(packageManager) != null) startActivity(intent)

@@ -20,6 +20,7 @@ object MessageNotificationAdapter {
     const val CHANNEL_NAME = "com.rahul1115.ntfy_flutter/message_notifications"
     private const val EXTRA_SUBSCRIPTION_ID = "notification.subscriptionId"
     private const val EXTRA_EVENT_ID = "notification.eventId"
+    private const val EXTRA_FULL_SCREEN_ELIGIBLE = "notification.fullScreenEligible"
     private const val TAG_PREFIX = "ntfy:"
 
     private val pendingTaps = ArrayDeque<Map<String, Any>>()
@@ -109,7 +110,9 @@ object MessageNotificationAdapter {
         val sequenceId = request["sequenceId"] as? String ?: eventId
         val title = request["title"] as? String ?: return false
         val body = request["body"] as? String ?: return false
-        val priority = request["priority"] as? String ?: return false
+        val requestedPriority = request["priority"] as? String ?: return false
+        val fullScreenEligible = request["fullScreenEligible"] as? Boolean ?: false
+        val priority = if (fullScreenEligible) "max" else requestedPriority
         val insistent = request["insistent"] as? Boolean ?: false
         val timestamp = (request["timestamp"] as? Number)?.toLong() ?: return false
         val customChannelGroup = request["channelId"] as? String
@@ -162,6 +165,7 @@ object MessageNotificationAdapter {
             .addExtras(Bundle().apply {
                 putInt(EXTRA_SUBSCRIPTION_ID, subscriptionId)
                 putString(EXTRA_EVENT_ID, eventId)
+                putBoolean(EXTRA_FULL_SCREEN_ELIGIBLE, fullScreenEligible)
             })
         addUserActions(
             context,

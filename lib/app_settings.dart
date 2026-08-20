@@ -76,6 +76,8 @@ class AppSettings {
     this.batteryPromptAfterEpochSeconds = 0,
     this.websocketPromptAfterEpochSeconds = 0,
     this.exactAlarmPromptAfterEpochSeconds = 0,
+    this.fullScreenAlertsEnabled = false,
+    this.fullScreenAlertTags = const [],
     this.broadcastsEnabled = true,
     this.unifiedPushEnabled = false,
     this.recordLogs = false,
@@ -97,6 +99,8 @@ class AppSettings {
   final int batteryPromptAfterEpochSeconds;
   final int websocketPromptAfterEpochSeconds;
   final int exactAlarmPromptAfterEpochSeconds;
+  final bool fullScreenAlertsEnabled;
+  final List<String> fullScreenAlertTags;
   final bool broadcastsEnabled;
   final bool unifiedPushEnabled;
   final bool recordLogs;
@@ -116,6 +120,8 @@ class AppSettings {
     int? batteryPromptAfterEpochSeconds,
     int? websocketPromptAfterEpochSeconds,
     int? exactAlarmPromptAfterEpochSeconds,
+    bool? fullScreenAlertsEnabled,
+    List<String>? fullScreenAlertTags,
     bool? broadcastsEnabled,
     bool? unifiedPushEnabled,
     bool? recordLogs,
@@ -143,6 +149,9 @@ class AppSettings {
     exactAlarmPromptAfterEpochSeconds:
         exactAlarmPromptAfterEpochSeconds ??
         this.exactAlarmPromptAfterEpochSeconds,
+    fullScreenAlertsEnabled:
+        fullScreenAlertsEnabled ?? this.fullScreenAlertsEnabled,
+    fullScreenAlertTags: fullScreenAlertTags ?? this.fullScreenAlertTags,
     broadcastsEnabled: broadcastsEnabled ?? this.broadcastsEnabled,
     unifiedPushEnabled: unifiedPushEnabled ?? this.unifiedPushEnabled,
     recordLogs: recordLogs ?? this.recordLogs,
@@ -163,6 +172,8 @@ class AppSettings {
     'batteryPromptAfterEpochSeconds': batteryPromptAfterEpochSeconds,
     'websocketPromptAfterEpochSeconds': websocketPromptAfterEpochSeconds,
     'exactAlarmPromptAfterEpochSeconds': exactAlarmPromptAfterEpochSeconds,
+    'fullScreenAlertsEnabled': fullScreenAlertsEnabled,
+    'fullScreenAlertTags': fullScreenAlertTags,
     'broadcastsEnabled': broadcastsEnabled,
     'unifiedPushEnabled': unifiedPushEnabled,
     'recordLogs': recordLogs,
@@ -220,6 +231,12 @@ class AppSettings {
           value['websocketPromptAfterEpochSeconds'] as int? ?? 0,
       exactAlarmPromptAfterEpochSeconds:
           value['exactAlarmPromptAfterEpochSeconds'] as int? ?? 0,
+      fullScreenAlertsEnabled:
+          value['fullScreenAlertsEnabled'] as bool? ?? false,
+      fullScreenAlertTags: switch (value['fullScreenAlertTags']) {
+        final List tags => tags.whereType<String>().toList(growable: false),
+        _ => const [],
+      },
       broadcastsEnabled: value['broadcastsEnabled'] as bool? ?? true,
       unifiedPushEnabled: value['unifiedPushEnabled'] as bool? ?? false,
       recordLogs: value['recordLogs'] as bool? ?? false,
@@ -811,7 +828,13 @@ abstract interface class BackgroundSetupPlatform {
   Future<void> openExactAlarmSettings();
 }
 
-class AndroidSettingsPlatform implements BackgroundSetupPlatform {
+abstract interface class FullScreenIntentPlatform {
+  Future<bool> isFullScreenIntentAllowed();
+  Future<void> openFullScreenIntentSettings();
+}
+
+class AndroidSettingsPlatform
+    implements BackgroundSetupPlatform, FullScreenIntentPlatform {
   const AndroidSettingsPlatform();
 
   static const _channel = MethodChannel(
@@ -846,6 +869,20 @@ class AndroidSettingsPlatform implements BackgroundSetupPlatform {
   @override
   Future<void> openExactAlarmSettings() =>
       _channel.invokeMethod('openExactAlarmSettings');
+
+  @override
+  Future<bool> isFullScreenIntentAllowed() async {
+    try {
+      return await _channel.invokeMethod<bool>('isFullScreenIntentAllowed') ??
+          true;
+    } on MissingPluginException {
+      return true;
+    }
+  }
+
+  @override
+  Future<void> openFullScreenIntentSettings() =>
+      _channel.invokeMethod('openFullScreenIntentSettings');
 }
 
 class ManagedCertificateFiles {

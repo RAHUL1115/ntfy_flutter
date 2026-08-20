@@ -12,6 +12,28 @@ const notificationChannelName =
 
 enum NotificationPriority { min, low, normal, high, max }
 
+class FullScreenAlertSettings {
+  const FullScreenAlertSettings({required this.enabled, required this.tags});
+
+  final bool enabled;
+  final List<String> tags;
+}
+
+List<String> normalizeFullScreenAlertTags(Iterable<String> tags) => tags
+    .map((tag) => tag.trim().toLowerCase())
+    .where((tag) => tag.isNotEmpty)
+    .toSet()
+    .toList(growable: false);
+
+bool matchesFullScreenAlertTags(
+  Iterable<String> messageTags,
+  Iterable<String> selectedTags,
+) {
+  final selected = normalizeFullScreenAlertTags(selectedTags).toSet();
+  return selected.isNotEmpty &&
+      normalizeFullScreenAlertTags(messageTags).any(selected.contains);
+}
+
 class MessageNotification {
   const MessageNotification({
     required this.id,
@@ -23,6 +45,7 @@ class MessageNotification {
     required this.priority,
     required this.timestamp,
     this.insistent = false,
+    this.fullScreenEligible = false,
     this.iconPath,
     this.channelId,
     this.channelName,
@@ -44,6 +67,7 @@ class MessageNotification {
   final NotificationPriority priority;
   final DateTime timestamp;
   final bool insistent;
+  final bool fullScreenEligible;
   final String? iconPath;
   final String? channelId;
   final String? channelName;
@@ -65,6 +89,7 @@ class MessageNotification {
     'priority': priority.name,
     'timestamp': timestamp.toUtc().millisecondsSinceEpoch,
     'insistent': insistent,
+    'fullScreenEligible': fullScreenEligible,
     'iconPath': ?iconPath,
     'channelId': ?channelId,
     'channelName': ?channelName,
@@ -273,6 +298,7 @@ class MessageNotificationSession {
     this.platform, {
     this.policies,
     this.broadcastsEnabled,
+    this.fullScreenAlertSettings,
     this.iconLoader,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
@@ -280,6 +306,7 @@ class MessageNotificationSession {
   final NotificationPlatform platform;
   final NotificationPolicyRepository? policies;
   final Future<bool> Function()? broadcastsEnabled;
+  final Future<FullScreenAlertSettings> Function()? fullScreenAlertSettings;
   final Future<Uint8List> Function(Uri uri)? iconLoader;
   final DateTime Function() _now;
   Future<void> _visibilityTail = Future<void>.value();
@@ -307,6 +334,7 @@ class MessageNotificationSession {
         return false;
       }
       final emojis = await EmojiTags.prefix(message.tags);
+      final fullScreen = await fullScreenAlertSettings?.call();
       final fallbackTitle =
           subscription.displayName ??
           Uri.parse(subscription.url).pathSegments.last;
@@ -330,6 +358,9 @@ class MessageNotificationSession {
         timestamp: message.time,
         insistent:
             policy?.insistentMaxPriority == true && message.priority == 5,
+        fullScreenEligible:
+            fullScreen?.enabled == true &&
+            matchesFullScreenAlertTags(message.tags, fullScreen!.tags),
         iconPath: policy?.subscriptionIconPath,
         channelId: policy?.dedicatedChannel == true
             ? 'ntfy-topic-${subscription.id}'
@@ -375,6 +406,7 @@ class MessageNotificationSession {
           priority: notification.priority,
           timestamp: notification.timestamp,
           insistent: notification.insistent,
+          fullScreenEligible: notification.fullScreenEligible,
           iconPath: notification.iconPath,
           channelId: notification.channelId,
           channelName: notification.channelName,

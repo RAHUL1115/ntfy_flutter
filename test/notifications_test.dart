@@ -77,6 +77,47 @@ void main() {
   });
 
   test(
+    'full-screen eligibility uses normalized selected tag matches',
+    () async {
+      expect(
+        matchesFullScreenAlertTags(['Urgent'], [' urgent ', 'call']),
+        isTrue,
+      );
+      expect(matchesFullScreenAlertTags(['warning'], ['urgent']), isFalse);
+      expect(matchesFullScreenAlertTags(['urgent'], const []), isFalse);
+
+      final platform = _RecordingNotificationPlatform();
+      final notifications = MessageNotificationSession(
+        platform,
+        fullScreenAlertSettings: () async =>
+            const FullScreenAlertSettings(enabled: true, tags: ['urgent']),
+      );
+      const subscription = Subscription(id: 7, url: 'https://ntfy.sh/alerts');
+      for (final tags in const [
+        ['urgent'],
+        ['warning'],
+      ]) {
+        await notifications.show(
+          subscription,
+          StoredMessage(
+            localId: platform.shown.length + 1,
+            subscriptionId: 7,
+            eventId: tags.single,
+            time: DateTime.utc(2026),
+            message: 'Body',
+            tags: tags,
+          ),
+        );
+      }
+
+      expect(platform.shown.map((item) => item.fullScreenEligible), [
+        true,
+        false,
+      ]);
+    },
+  );
+
+  test(
     'advanced metadata reaches replacement notification and controls cancel it',
     () async {
       final platform = _RecordingNotificationPlatform();

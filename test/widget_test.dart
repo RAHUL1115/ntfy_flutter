@@ -993,6 +993,46 @@ void main() {
     },
   );
 
+  testWidgets(
+    'full-screen alerts require configured tags and user-opened access',
+    (tester) async {
+      final settings = AppSettingsStore(
+        preferences: _MemoryPreferences(),
+        secrets: _MemorySecrets(),
+      );
+      final platform = _RecordingBackgroundSetupPlatform();
+      await tester.pumpWidget(
+        NtfyApp(
+          store: store,
+          settings: settings,
+          fullScreenIntentPlatform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('home-settings-action')));
+      await tester.pumpAndSettle();
+      final setting = find.byKey(const Key('full-screen-alerts-setting'));
+      await tester.scrollUntilVisible(setting, 300);
+      await tester.tap(setting);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Enable tagged alerts'));
+      await tester.enterText(
+        find.byKey(const Key('full-screen-alert-tags-field')),
+        ' Urgent, CALL, urgent ',
+      );
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await settings.loadSettings();
+      expect(saved.fullScreenAlertsEnabled, isTrue);
+      expect(saved.fullScreenAlertTags, ['urgent', 'call']);
+      final access = find.byKey(const Key('full-screen-alert-access'));
+      await tester.scrollUntilVisible(access, 300);
+      await tester.tap(access);
+      expect(platform.fullScreenSettingsOpens, 1);
+    },
+  );
+
   testWidgets('default server dialog opens wide', (tester) async {
     final settings = AppSettingsStore(
       preferences: _MemoryPreferences(),
@@ -1465,9 +1505,12 @@ class _RecordingBackgroundHost implements BackgroundListeningHost {
   Future<BackgroundListeningHostStatus> status() async => statusValue;
 }
 
-class _RecordingBackgroundSetupPlatform implements BackgroundSetupPlatform {
+class _RecordingBackgroundSetupPlatform
+    implements BackgroundSetupPlatform, FullScreenIntentPlatform {
   int batterySettingsOpens = 0;
   int exactAlarmSettingsOpens = 0;
+  int fullScreenSettingsOpens = 0;
+  bool fullScreenAllowed = false;
 
   @override
   Future<BackgroundSetupCapabilities> capabilities() async =>
@@ -1481,6 +1524,13 @@ class _RecordingBackgroundSetupPlatform implements BackgroundSetupPlatform {
 
   @override
   Future<void> openExactAlarmSettings() async => exactAlarmSettingsOpens++;
+
+  @override
+  Future<bool> isFullScreenIntentAllowed() async => fullScreenAllowed;
+
+  @override
+  Future<void> openFullScreenIntentSettings() async =>
+      fullScreenSettingsOpens++;
 }
 
 class _MemoryPreferences implements PreferencesBackend {

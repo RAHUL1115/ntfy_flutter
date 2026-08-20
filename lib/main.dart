@@ -42,6 +42,7 @@ class NtfyApp extends StatefulWidget {
     this.notifications,
     this.settings,
     this.backgroundSetupPlatform = const AndroidSettingsPlatform(),
+    this.fullScreenIntentPlatform = const AndroidSettingsPlatform(),
     SubscriptionAccessChecker? subscriptionAccessChecker,
     super.key,
   }) : publisher = publisher ?? HttpNtfyPublisher(profiles: settings),
@@ -57,6 +58,7 @@ class NtfyApp extends StatefulWidget {
   final MessageNotificationSession? notifications;
   final AppSettingsRepository? settings;
   final BackgroundSetupPlatform backgroundSetupPlatform;
+  final FullScreenIntentPlatform fullScreenIntentPlatform;
   final SubscriptionAccessChecker? subscriptionAccessChecker;
 
   @override
@@ -90,6 +92,15 @@ class _NtfyAppState extends State<NtfyApp> {
               ? null
               : () async =>
                     (await widget.settings!.loadSettings()).broadcastsEnabled,
+          fullScreenAlertSettings: widget.settings == null
+              ? null
+              : () async {
+                  final settings = await widget.settings!.loadSettings();
+                  return FullScreenAlertSettings(
+                    enabled: settings.fullScreenAlertsEnabled,
+                    tags: settings.fullScreenAlertTags,
+                  );
+                },
           iconLoader: (uri) =>
               AttachmentService(profiles: widget.settings)
                   .fetchBytes(uri, maxBytes: 1024 * 1024),
@@ -203,6 +214,7 @@ class _NtfyAppState extends State<NtfyApp> {
         routeObserver: _routeObserver,
         settings: widget.settings,
         backgroundSetupPlatform: widget.backgroundSetupPlatform,
+        fullScreenIntentPlatform: widget.fullScreenIntentPlatform,
         subscriptionAccessChecker: widget.subscriptionAccessChecker,
         appSettings: _appSettings,
         onSettingsChanged: _loadSettings,
@@ -226,6 +238,7 @@ class SubscriptionsScreen extends StatefulWidget {
     required this.routeObserver,
     this.settings,
     this.backgroundSetupPlatform = const AndroidSettingsPlatform(),
+    this.fullScreenIntentPlatform = const AndroidSettingsPlatform(),
     this.subscriptionAccessChecker,
     this.appSettings = const AppSettings(),
     this.onSettingsChanged,
@@ -240,6 +253,7 @@ class SubscriptionsScreen extends StatefulWidget {
   final RouteObserver<PageRoute<dynamic>> routeObserver;
   final AppSettingsRepository? settings;
   final BackgroundSetupPlatform backgroundSetupPlatform;
+  final FullScreenIntentPlatform fullScreenIntentPlatform;
   final SubscriptionAccessChecker? subscriptionAccessChecker;
   final AppSettings appSettings;
   final Future<void> Function()? onSettingsChanged;
@@ -382,6 +396,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               ? widget.store as NotificationPolicyRepository
               : null,
           settings: widget.settings,
+          fullScreenIntentPlatform: widget.fullScreenIntentPlatform,
           database: widget.store is SubscriptionStore
               ? widget.store as SubscriptionStore
               : null,

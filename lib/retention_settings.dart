@@ -28,6 +28,7 @@ class SettingsScreen extends StatelessWidget {
     this.onCheckForUpdates,
     this.onReportBug,
     this.onDocumentation,
+    this.fullScreenIntentPlatform = const AndroidSettingsPlatform(),
     super.key,
   });
 
@@ -40,6 +41,7 @@ class SettingsScreen extends StatelessWidget {
   final VoidCallback? onCheckForUpdates;
   final VoidCallback? onReportBug;
   final VoidCallback? onDocumentation;
+  final FullScreenIntentPlatform fullScreenIntentPlatform;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -70,6 +72,7 @@ class SettingsScreen extends StatelessWidget {
               _AppSettingsPanel(
                 repository: settings!,
                 backgroundListening: backgroundListening,
+                fullScreenIntentPlatform: fullScreenIntentPlatform,
                 database: database,
                 onChanged: onSettingsChanged,
                 onCheckForUpdates: onCheckForUpdates,
@@ -883,6 +886,7 @@ class _AppSettingsPanel extends StatefulWidget {
   const _AppSettingsPanel({
     required this.repository,
     required this.backgroundListening,
+    required this.fullScreenIntentPlatform,
     this.database,
     this.onChanged,
     this.onCheckForUpdates,
@@ -892,6 +896,7 @@ class _AppSettingsPanel extends StatefulWidget {
 
   final AppSettingsRepository repository;
   final BackgroundListeningSession backgroundListening;
+  final FullScreenIntentPlatform fullScreenIntentPlatform;
   final SubscriptionStore? database;
   final Future<void> Function()? onChanged;
   final VoidCallback? onCheckForUpdates;
@@ -902,13 +907,38 @@ class _AppSettingsPanel extends StatefulWidget {
   State<_AppSettingsPanel> createState() => _AppSettingsPanelState();
 }
 
-class _AppSettingsPanelState extends State<_AppSettingsPanel> {
+class _AppSettingsPanelState extends State<_AppSettingsPanel>
+    with WidgetsBindingObserver {
   AppSettings? _settings;
+  bool? _fullScreenIntentAllowed;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _loadFullScreenIntentAccess();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _loadFullScreenIntentAccess();
+  }
+
+  Future<void> _loadFullScreenIntentAccess() async {
+    try {
+      final allowed = await widget.fullScreenIntentPlatform
+          .isFullScreenIntentAllowed();
+      if (mounted) setState(() => _fullScreenIntentAllowed = allowed);
+    } catch (_) {
+      if (mounted) setState(() => _fullScreenIntentAllowed = true);
+    }
   }
 
   Future<void> _load() async {
@@ -963,6 +993,76 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
       await _save(candidate);
     } on FormatException catch (error) {
       _error(error.message);
+    }
+  }
+
+  Future<void> _editFullScreenAlerts() async {
+    final settings = _settings;
+    if (settings == null) return;
+    final controller = TextEditingController(
+      text: settings.fullScreenAlertTags.join(', '),
+    );
+    var enabled = settings.fullScreenAlertsEnabled;
+    final value = await showDialog<(bool, List<String>)>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const LText('Full-screen alerts'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const LText('Enable tagged alerts'),
+                value: enabled,
+                onChanged: (value) => setDialogState(() => enabled = value),
+              ),
+              TextField(
+                key: const Key('full-screen-alert-tags-field'),
+                controller: controller,
+                decoration: const InputDecoration(
+                  labelText: 'Eligible tags',
+                  helperText: 'Comma-separated ntfy tags. No tag is enabled by default.',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const LText('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, (
+                enabled,
+                normalizeFullScreenAlertTags(controller.text.split(',')),
+              )),
+              child: const LText('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (value == null) return;
+    if (value.$1 && value.$2.isEmpty) {
+      _error(
+        'Add at least one eligible tag before enabling full-screen alerts.',
+      );
+      return;
+    }
+    await _save(
+      settings.copyWith(
+        fullScreenAlertsEnabled: value.$1,
+        fullScreenAlertTags: value.$2,
+      ),
+    );
+  }
+
+  Future<void> _openFullScreenIntentSettings() async {
+    try {
+      await widget.fullScreenIntentPlatform.openFullScreenIntentSettings();
+    } catch (_) {
+      _error('Could not open Android full-screen notification settings.');
     }
   }
 
@@ -1354,6 +1454,27 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 ),
               ),
             ),
+            ListTile(
+              key: const Key('full-screen-alerts-setting'),
+              title: const LText('Full-screen alerts'),
+              subtitle: LText(
+                settings.fullScreenAlertsEnabled
+                    ? 'Eligible tags: ${settings.fullScreenAlertTags.join(', ')}'
+                    : 'Off · enable only for urgent, time-sensitive notifications',
+              ),
+              onTap: _editFullScreenAlerts,
+            ),
+            if (settings.fullScreenAlertsEnabled &&
+                _fullScreenIntentAllowed == false)
+              ListTile(
+                key: const Key('full-screen-alert-access'),
+                title: const LText('Allow full-screen notifications'),
+                subtitle: const LText(
+                  'Android access is unavailable. Tagged alerts will use a '
+                  'maximum-importance notification instead.',
+                ),
+                onTap: _openFullScreenIntentSettings,
+              ),
             ListTile(
               key: const Key('custom-headers-setting'),
               title: const LText('Custom headers'),
