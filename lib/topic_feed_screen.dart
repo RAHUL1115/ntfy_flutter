@@ -1408,6 +1408,7 @@ class _MessageBar extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: ConstrainedBox(
+                      key: const Key('quick-message-field-shell'),
                       constraints: const BoxConstraints(minHeight: 48),
                       child: TweenAnimationBuilder<double>(
                         tween: Tween(begin: 0, end: 1),

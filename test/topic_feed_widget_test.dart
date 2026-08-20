@@ -851,7 +851,7 @@ void main() {
       48,
     );
     expect(
-      tester.getSize(find.byKey(const Key('quick-message-field'))).height,
+      tester.getSize(find.byKey(const Key('quick-message-field-shell'))).height,
       48,
     );
     expect(tester.getSize(find.byKey(const Key('quick-send'))).height, 48);
