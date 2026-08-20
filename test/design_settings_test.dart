@@ -59,9 +59,7 @@ void main() {
       final lightScheme = designAppTheme(
         brightness: Brightness.light,
         accent: accent,
-        dynamicScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xff336699),
-        ),
+        dynamicScheme: ColorScheme.fromSeed(seedColor: const Color(0xff336699)),
       ).colorScheme;
       expect(lightScheme.shadow, isNot(Colors.black));
       expect(
@@ -78,6 +76,37 @@ void main() {
         ),
       ).colorScheme;
       expect(darkScheme.shadow, Colors.black);
+    }
+  });
+
+  test('selectable chips keep readable and distinct states', () {
+    for (final brightness in Brightness.values) {
+      final dynamicScheme = ColorScheme.fromSeed(
+        seedColor: const Color(0xff8c72cb),
+        brightness: brightness,
+      );
+      for (final accent in AppAccentPreference.values) {
+        final theme = designAppTheme(
+          brightness: brightness,
+          accent: accent,
+          dynamicScheme: dynamicScheme,
+        );
+        final chip = theme.chipTheme;
+        final labelStyle = chip.labelStyle! as WidgetStateTextStyle;
+        final selectedLabel = labelStyle.resolve({WidgetState.selected}).color!;
+        final unselectedLabel = labelStyle.resolve({}).color!;
+        final disabledLabel = labelStyle.resolve({WidgetState.disabled}).color!;
+
+        expect(
+          _contrastRatio(chip.selectedColor!, selectedLabel),
+          greaterThanOrEqualTo(4.5),
+          reason: '${accent.name} ${brightness.name} selected chip contrast',
+        );
+        expect(selectedLabel, isNot(unselectedLabel));
+        expect(disabledLabel, isNot(selectedLabel));
+        expect(chip.disabledColor, isNot(chip.selectedColor));
+        expect(chip.backgroundColor, isNot(chip.selectedColor));
+      }
     }
   });
 

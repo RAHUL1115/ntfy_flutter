@@ -387,6 +387,7 @@ ThemeData _theme(ColorScheme scheme, TextTheme text) {
     chipTheme: ChipThemeData(
       backgroundColor: scheme.outlineVariant,
       selectedColor: scheme.primary,
+      disabledColor: scheme.outlineVariant.withValues(alpha: 0.38),
       surfaceTintColor: Colors.transparent,
       checkmarkColor: scheme.onPrimary,
       showCheckmark: false,
@@ -394,9 +395,15 @@ ThemeData _theme(ColorScheme scheme, TextTheme text) {
       pressElevation: 0,
       side: BorderSide.none,
       shape: _square,
-      labelStyle: text.labelMedium!.copyWith(
-        fontWeight: FontWeight.w400,
-        color: scheme.onSurface,
+      labelStyle: WidgetStateTextStyle.resolveWith(
+        (states) => text.labelMedium!.copyWith(
+          fontWeight: FontWeight.w400,
+          color: states.contains(WidgetState.disabled)
+              ? scheme.onSurface.withValues(alpha: 0.38)
+              : states.contains(WidgetState.selected)
+              ? scheme.onPrimary
+              : scheme.onSurface,
+        ),
       ),
       secondaryLabelStyle: text.labelMedium!.copyWith(
         fontWeight: FontWeight.w400,
@@ -638,6 +645,7 @@ class DesignHeader extends StatelessWidget {
     this.onCollapsedTitleTap,
     this.expandedTitleSize = 28,
     this.collapsedTitleSize = 22,
+    this.collapsedActionsWidth,
     this.border = true,
     super.key,
   });
@@ -650,6 +658,7 @@ class DesignHeader extends StatelessWidget {
   final List<Widget> actions;
   final double expandedTitleSize;
   final double collapsedTitleSize;
+  final double? collapsedActionsWidth;
   final bool border;
 
   double _lerp(double collapsed, double expanded) =>
@@ -687,7 +696,10 @@ class DesignHeader extends StatelessWidget {
             duration: animationDuration,
             curve: Curves.easeOutCubic,
             left: _lerp(leading == null ? 16 : 68, 16),
-            right: _lerp(16 + (actions.length * 48), 16),
+            right: _lerp(
+              16 + (collapsedActionsWidth ?? actions.length * 48),
+              16,
+            ),
             top: _lerp(16, 110),
             height: 40,
             child: AnimatedDefaultTextStyle(
@@ -738,6 +750,7 @@ class CollapsibleDesignBody extends StatefulWidget {
     this.scrollController,
     this.expandedTitleSize = 28,
     this.collapsedTitleSize = 22,
+    this.collapsedActionsWidth,
     super.key,
   });
 
@@ -751,6 +764,7 @@ class CollapsibleDesignBody extends StatefulWidget {
   final ScrollController? scrollController;
   final double expandedTitleSize;
   final double collapsedTitleSize;
+  final double? collapsedActionsWidth;
 
   @override
   State<CollapsibleDesignBody> createState() => _CollapsibleDesignBodyState();
@@ -996,6 +1010,7 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
               actions: widget.actions,
               expandedTitleSize: widget.expandedTitleSize,
               collapsedTitleSize: widget.collapsedTitleSize,
+              collapsedActionsWidth: widget.collapsedActionsWidth,
             ),
           ),
           Expanded(

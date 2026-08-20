@@ -591,9 +591,11 @@ void main() {
       matching: find.byKey(const Key('swipe-delete-action')),
     );
     expect(
-      tester.widget<InkWell>(
-        find.descendant(of: action, matching: find.byType(InkWell)),
-      ).onTap,
+      tester
+          .widget<InkWell>(
+            find.descendant(of: action, matching: find.byType(InkWell)),
+          )
+          .onTap,
       isNull,
     );
 
@@ -613,9 +615,11 @@ void main() {
       ),
     );
     expect(
-      tester.widget<InkWell>(
-        find.descendant(of: action, matching: find.byType(InkWell)),
-      ).onTap,
+      tester
+          .widget<InkWell>(
+            find.descendant(of: action, matching: find.byType(InkWell)),
+          )
+          .onTap,
       isNotNull,
     );
     final actionMaterial = tester.widget<Material>(action);
@@ -820,6 +824,120 @@ void main() {
     await tester.pageBack();
     await tester.pumpAndSettle();
     expect(find.text('Body 0'), findsNothing);
+  });
+
+  testWidgets('composer header protects its title and actions', (tester) async {
+    const target =
+        'announcements-for-a-very-long-localized-production-channel-name';
+    tester.view
+      ..physicalSize = const Size(360, 800)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final semantics = tester.ensureSemantics();
+    final repository = _WidgetRepository(messageCount: 0)
+      ..subscription = const Subscription(
+        id: 1,
+        url: 'https://ntfy.sh/announcements',
+        displayName: target,
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('expand-composer')));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(ListView).last, const Offset(0, -300));
+    await tester.pumpAndSettle();
+
+    Rect? hiddenKeyboardHeader;
+    for (final keyboardInset in const [0.0, 240.0]) {
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboardInset);
+      await tester.pumpAndSettle();
+      final title = tester.getRect(find.byKey(const Key('publish-title')));
+      final action = tester.getRect(find.byKey(const Key('publish-action')));
+      expect(title.right + 12, lessThanOrEqualTo(action.left));
+      expect(action.right, lessThanOrEqualTo(360));
+      expect(action.width, greaterThanOrEqualTo(48));
+      if (hiddenKeyboardHeader == null) {
+        hiddenKeyboardHeader = title;
+      } else {
+        expect(title, hiddenKeyboardHeader);
+      }
+    }
+
+    expect(find.text(target), findsOneWidget);
+    expect(find.text('Publish to $target'), findsNothing);
+    expect(find.bySemanticsLabel('Publish to $target'), findsOneWidget);
+    expect(find.byTooltip('Close composer'), findsOneWidget);
+    expect(find.byKey(const Key('publish-action')), findsOneWidget);
+    semantics.dispose();
+  });
+
+  testWidgets('composer option chips focus their revealed input', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 0);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('expand-composer')));
+    await tester.pumpAndSettle();
+
+    for (final pair in const [
+      ('composer-title-chip', 'composer-title-field'),
+      ('composer-tags-chip', 'composer-tags-field'),
+      ('composer-click-chip', 'composer-click-field'),
+      ('composer-email-chip', 'composer-email-field'),
+      ('composer-delay-chip', 'composer-delay-field'),
+      ('composer-attachment-url-chip', 'composer-attachment-url-field'),
+      ('composer-call-chip', 'composer-call-field'),
+    ]) {
+      final chip = find.byKey(Key(pair.$1));
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+      final field = find.byKey(Key(pair.$2));
+      final editable = tester.widget<EditableText>(
+        find.descendant(of: field, matching: find.byType(EditableText)),
+      );
+      expect(editable.focusNode.hasFocus, isTrue, reason: pair.$1);
+      if (pair.$1 == 'composer-call-chip') continue;
+      await tester.ensureVisible(chip);
+      await tester.tap(chip);
+      await tester.pumpAndSettle();
+    }
   });
 
   testWidgets('composer validates and preserves a failed draft for retry', (

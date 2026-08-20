@@ -1550,6 +1550,14 @@ class _PublishComposerState extends State<_PublishComposer> {
   final _delay = TextEditingController();
   final _call = TextEditingController();
   final _attachmentUrl = TextEditingController();
+  final _titleFocus = FocusNode();
+  final _tagsFocus = FocusNode();
+  final _priorityFocus = FocusNode();
+  final _clickFocus = FocusNode();
+  final _emailFocus = FocusNode();
+  final _delayFocus = FocusNode();
+  final _callFocus = FocusNode();
+  final _attachmentUrlFocus = FocusNode();
   var _priority = 3;
   var _showTitle = false;
   var _showTags = false;
@@ -1575,7 +1583,25 @@ class _PublishComposerState extends State<_PublishComposer> {
     _delay.dispose();
     _call.dispose();
     _attachmentUrl.dispose();
+    for (final focus in [
+      _titleFocus,
+      _tagsFocus,
+      _priorityFocus,
+      _clickFocus,
+      _emailFocus,
+      _delayFocus,
+      _callFocus,
+      _attachmentUrlFocus,
+    ]) {
+      focus.dispose();
+    }
     super.dispose();
+  }
+
+  void _focusAfterBuild(FocusNode focus) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) focus.requestFocus();
+    });
   }
 
   Future<void> _publish() async {
@@ -1644,23 +1670,39 @@ class _PublishComposerState extends State<_PublishComposer> {
             onPressed: _sending ? null : () => Navigator.pop(context),
             icon: const Icon(Icons.close),
           ),
-          title: LText('Publish to $target'),
+          title: LText(
+            target,
+            key: const Key('publish-title'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            semanticsLabel: tr(context, 'Publish to $target'),
+          ),
           actions: [
-            TextButton(
-              key: const Key('publish-action'),
-              onPressed: _sending ? null : _publish,
-              child: _sending
-                  ? Semantics(
-                      liveRegion: true,
-                      label: tr(context, 'Publishing message'),
-                      child: SizedBox.square(
-                        dimension: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
+            SizedBox(
+              width: 96,
+              child: TextButton(
+                key: const Key('publish-action'),
+                onPressed: _sending ? null : _publish,
+                child: _sending
+                    ? Semantics(
+                        liveRegion: true,
+                        label: tr(context, 'Publishing message'),
+                        child: SizedBox.square(
+                          dimension: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: LText(
+                          'PUBLISH',
+                          style: monoLabel.copyWith(fontSize: 12),
+                        ),
                       ),
-                    )
-                  : LText('PUBLISH', style: monoLabel.copyWith(fontSize: 12)),
+              ),
             ),
           ],
+          collapsedActionsWidth: 108,
           collapsedTitleSize: 20,
           expandedTitleSize: 24,
           child: ListView(
@@ -1670,6 +1712,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 TextField(
                   key: const Key('composer-title-field'),
                   controller: _title,
+                  focusNode: _titleFocus,
                   enabled: !_sending,
                   decoration: InputDecoration(
                     labelText: tr(context, 'Title').toUpperCase(),
@@ -1696,6 +1739,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 TextField(
                   key: const Key('composer-tags-field'),
                   controller: _tags,
+                  focusNode: _tagsFocus,
                   enabled: !_sending,
                   decoration: InputDecoration(
                     labelText: tr(context, 'Tags').toUpperCase(),
@@ -1708,6 +1752,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 DropdownButtonFormField<int>(
                   key: const Key('composer-priority-field'),
                   initialValue: _priority,
+                  focusNode: _priorityFocus,
                   decoration: InputDecoration(
                     labelText: tr(context, 'Priority').toUpperCase(),
                   ),
@@ -1737,6 +1782,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 _ComposerField(
                   fieldKey: const Key('composer-click-field'),
                   controller: _click,
+                  focusNode: _clickFocus,
                   label: 'Click URL',
                   keyboardType: TextInputType.url,
                   enabled: !_sending,
@@ -1747,6 +1793,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 _ComposerField(
                   fieldKey: const Key('composer-email-field'),
                   controller: _email,
+                  focusNode: _emailFocus,
                   label: 'Email',
                   keyboardType: TextInputType.emailAddress,
                   enabled: !_sending,
@@ -1757,6 +1804,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 _ComposerField(
                   fieldKey: const Key('composer-delay-field'),
                   controller: _delay,
+                  focusNode: _delayFocus,
                   label: 'Delay',
                   hint: '30m, 2h, or tomorrow 10am',
                   enabled: !_sending,
@@ -1767,6 +1815,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 _ComposerField(
                   fieldKey: const Key('composer-call-field'),
                   controller: _call,
+                  focusNode: _callFocus,
                   label: 'Phone call',
                   keyboardType: TextInputType.phone,
                   enabled: !_sending,
@@ -1777,6 +1826,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                 _ComposerField(
                   fieldKey: const Key('composer-attachment-url-field'),
                   controller: _attachmentUrl,
+                  focusNode: _attachmentUrlFocus,
                   label: 'Attach by URL',
                   keyboardType: TextInputType.url,
                   enabled: !_sending,
@@ -1820,7 +1870,11 @@ class _PublishComposerState extends State<_PublishComposer> {
                         ? null
                         : (selected) => setState(() {
                             _showTitle = selected;
-                            if (!selected) _title.clear();
+                            if (selected) {
+                              _focusAfterBuild(_titleFocus);
+                            } else {
+                              _title.clear();
+                            }
                           }),
                   ),
                   FilterChip(
@@ -1831,7 +1885,11 @@ class _PublishComposerState extends State<_PublishComposer> {
                         ? null
                         : (selected) => setState(() {
                             _showTags = selected;
-                            if (!selected) _tags.clear();
+                            if (selected) {
+                              _focusAfterBuild(_tagsFocus);
+                            } else {
+                              _tags.clear();
+                            }
                           }),
                   ),
                   FilterChip(
@@ -1842,7 +1900,11 @@ class _PublishComposerState extends State<_PublishComposer> {
                         ? null
                         : (selected) => setState(() {
                             _showPriority = selected;
-                            if (!selected) _priority = 3;
+                            if (selected) {
+                              _focusAfterBuild(_priorityFocus);
+                            } else {
+                              _priority = 3;
+                            }
                           }),
                   ),
                   FilterChip(
@@ -1851,7 +1913,10 @@ class _PublishComposerState extends State<_PublishComposer> {
                     selected: _showClick,
                     onSelected: _sending
                         ? null
-                        : (selected) => setState(() => _showClick = selected),
+                        : (selected) => setState(() {
+                            _showClick = selected;
+                            if (selected) _focusAfterBuild(_clickFocus);
+                          }),
                   ),
                   FilterChip(
                     key: const Key('composer-email-chip'),
@@ -1859,7 +1924,10 @@ class _PublishComposerState extends State<_PublishComposer> {
                     selected: _showEmail,
                     onSelected: _sending
                         ? null
-                        : (selected) => setState(() => _showEmail = selected),
+                        : (selected) => setState(() {
+                            _showEmail = selected;
+                            if (selected) _focusAfterBuild(_emailFocus);
+                          }),
                   ),
                   FilterChip(
                     key: const Key('composer-delay-chip'),
@@ -1867,7 +1935,10 @@ class _PublishComposerState extends State<_PublishComposer> {
                     selected: _showDelay,
                     onSelected: _sending
                         ? null
-                        : (selected) => setState(() => _showDelay = selected),
+                        : (selected) => setState(() {
+                            _showDelay = selected;
+                            if (selected) _focusAfterBuild(_delayFocus);
+                          }),
                   ),
                   FilterChip(
                     key: const Key('composer-attachment-url-chip'),
@@ -1880,6 +1951,7 @@ class _PublishComposerState extends State<_PublishComposer> {
                             if (selected) {
                               _attachmentFilePath = null;
                               _attachmentFileName = null;
+                              _focusAfterBuild(_attachmentUrlFocus);
                             }
                           }),
                   ),
@@ -1894,7 +1966,10 @@ class _PublishComposerState extends State<_PublishComposer> {
                     selected: _showCall,
                     onSelected: _sending
                         ? null
-                        : (selected) => setState(() => _showCall = selected),
+                        : (selected) => setState(() {
+                            _showCall = selected;
+                            if (selected) _focusAfterBuild(_callFocus);
+                          }),
                   ),
                 ],
               ),
@@ -1923,6 +1998,7 @@ class _ComposerField extends StatelessWidget {
   const _ComposerField({
     required this.fieldKey,
     required this.controller,
+    required this.focusNode,
     required this.label,
     required this.enabled,
     this.hint,
@@ -1931,6 +2007,7 @@ class _ComposerField extends StatelessWidget {
 
   final Key fieldKey;
   final TextEditingController controller;
+  final FocusNode focusNode;
   final String label;
   final String? hint;
   final TextInputType? keyboardType;
@@ -1940,6 +2017,7 @@ class _ComposerField extends StatelessWidget {
   Widget build(BuildContext context) => TextField(
     key: fieldKey,
     controller: controller,
+    focusNode: focusNode,
     enabled: enabled,
     keyboardType: keyboardType,
     decoration: InputDecoration(
