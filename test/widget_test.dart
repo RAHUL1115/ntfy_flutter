@@ -77,11 +77,7 @@ void main() {
             title: const Text('Page title'),
             leading: const SizedBox(key: Key('expanded-back')),
             actions: const [
-              SizedBox(
-                key: Key('expanded-action'),
-                width: 48,
-                height: 48,
-              ),
+              SizedBox(key: Key('expanded-action'), width: 48, height: 48),
             ],
           ),
         ),
@@ -642,6 +638,82 @@ void main() {
     );
   });
 
+  testWidgets('protected subscriptions verify login before saving', (
+    tester,
+  ) async {
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    final checker = _ProtectedAccessChecker();
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        settings: settings,
+        subscriptionAccessChecker: checker,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(Icons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('topic-url-field')),
+      'https://private.example/alerts',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Subscribe'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Sign in to server'), findsOneWidget);
+    expect(await store.all(), isEmpty);
+    expect(await settings.loadAccounts(), isEmpty);
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(find.text('Subscribe to topic'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('topic-url-field')))
+          .controller
+          ?.text,
+      'https://private.example/alerts',
+    );
+    expect(await store.all(), isEmpty);
+    expect(await settings.loadAccounts(), isEmpty);
+    await tester.tap(find.widgetWithText(FilledButton, 'Subscribe'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('server-username-field')),
+      'rahul',
+    );
+    await tester.enterText(
+      find.byKey(const Key('server-password-field')),
+      'wrong',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+    await tester.pumpAndSettle();
+    expect(find.text('This login cannot access the topic.'), findsOneWidget);
+    expect(await store.all(), isEmpty);
+    expect(await settings.loadAccounts(), isEmpty);
+
+    await tester.enterText(
+      find.byKey(const Key('server-password-field')),
+      'secret',
+    );
+    await tester.pump();
+    await tester.tap(find.widgetWithText(FilledButton, 'Sign in'));
+    await tester.pumpAndSettle();
+
+    expect((await store.all()).single.url, 'https://private.example/alerts');
+    final account = (await settings.loadAccounts()).single;
+    expect(account.baseUrl, 'https://private.example');
+    expect(account.username, 'rahul');
+    expect(account.password, 'secret');
+  });
+
   testWidgets('uses the design system light colors', (tester) async {
     await tester.pumpWidget(NtfyApp(store: store));
 
@@ -747,6 +819,100 @@ void main() {
     expect(host.stops, 1);
   });
 
+  testWidgets('add user dialog opens wide with spaced fields', (tester) async {
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('home-settings-action')));
+    await tester.pumpAndSettle();
+    final users = find.byKey(const Key('users-settings'));
+    await tester.ensureVisible(users);
+    await tester.pumpAndSettle();
+    await tester.tap(users);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+
+    final dialog = find.byType(AlertDialog);
+    final fields = find.descendant(
+      of: dialog,
+      matching: find.byType(TextField),
+    );
+    expect(tester.getSize(dialog).width, greaterThanOrEqualTo(500));
+    expect(fields, findsNWidgets(3));
+    expect(
+      tester.getTopLeft(fields.at(1)).dy -
+          tester.getBottomLeft(fields.at(0)).dy,
+      greaterThanOrEqualTo(16),
+    );
+    expect(
+      tester.getTopLeft(fields.at(2)).dy -
+          tester.getBottomLeft(fields.at(1)).dy,
+      greaterThanOrEqualTo(16),
+    );
+  });
+
+  testWidgets('default server dialog opens wide', (tester) async {
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('home-settings-action')));
+    await tester.pumpAndSettle();
+    final server = find.byKey(const Key('default-server'));
+    await tester.ensureVisible(server);
+    await tester.pumpAndSettle();
+    await tester.tap(server);
+    await tester.pumpAndSettle();
+
+    final dialog = find.byType(AlertDialog);
+    expect(tester.getSize(dialog).width, greaterThanOrEqualTo(500));
+    expect(
+      tester.getSize(find.byKey(const Key('default-server-field'))).width,
+      greaterThanOrEqualTo(450),
+    );
+  });
+
+  testWidgets('stored choices show the selected themed radio option', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('home-settings-action')));
+    await tester.pumpAndSettle();
+    final theme = find.byKey(const Key('theme-setting'));
+    await tester.scrollUntilVisible(theme, 300);
+    await tester.pumpAndSettle();
+    await tester.tap(theme);
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.radio_button_checked), findsOneWidget);
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNWidgets(2));
+    final selected = tester.getSemantics(
+      find.bySemanticsLabel('Follow system'),
+    );
+    expect(selected.flagsCollection.isSelected, Tristate.isTrue);
+    expect(selected.flagsCollection.isInMutuallyExclusiveGroup, isTrue);
+    expect(
+      tester.widget<Icon>(find.byIcon(Icons.radio_button_checked)).color,
+      Theme.of(tester.element(find.byType(SimpleDialog))).colorScheme.primary,
+    );
+    semantics.dispose();
+  });
+
   testWidgets('settings persists appearance and message-list choices', (
     tester,
   ) async {
@@ -847,7 +1013,13 @@ void main() {
     await settings.saveSettings(
       const AppSettings(defaultServer: 'https://example.com/base/'),
     );
-    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpWidget(
+      NtfyApp(
+        store: store,
+        settings: settings,
+        subscriptionAccessChecker: _AllowAccessChecker(),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.add));
@@ -1223,6 +1395,24 @@ class _SilentClient implements NtfyStreamClient {
       if (!_lines.isClosed) await _lines.close();
     },
   );
+}
+
+class _ProtectedAccessChecker implements SubscriptionAccessChecker {
+  @override
+  Future<SubscriptionAccess> check({
+    required String topicUrl,
+    ServerAccount? account,
+  }) async => account?.username == 'rahul' && account?.password == 'secret'
+      ? SubscriptionAccess.allowed
+      : SubscriptionAccess.authenticationRequired;
+}
+
+class _AllowAccessChecker implements SubscriptionAccessChecker {
+  @override
+  Future<SubscriptionAccess> check({
+    required String topicUrl,
+    ServerAccount? account,
+  }) async => SubscriptionAccess.allowed;
 }
 
 class _MemorySubscriptionRepository

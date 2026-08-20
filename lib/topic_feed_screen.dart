@@ -147,54 +147,71 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     if (repository == null || policy == null) return;
     final now = DateTime.now();
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final overrideRepository = repository is TopicNotificationPolicyRepository
+        ? repository as TopicNotificationPolicyRepository
+        : null;
+    TopicNotificationPolicyOverrides? overrides;
+    if (overrideRepository != null) {
+      overrides = await overrideRepository.loadTopicNotificationPolicyOverrides(
+        _subscription.id,
+      );
+      if (!mounted) return;
+    }
+    final current = overrides == null
+        ? policy.mutedUntilEpochSeconds
+        : overrides.mutedUntilEpochSeconds;
+    final choices = <(String, bool, int?)>[
+      if (overrides != null) ('Use global setting', true, null),
+      ('Show all notifications', false, 0),
+      (
+        '30 minutes',
+        false,
+        now.add(const Duration(minutes: 30)).millisecondsSinceEpoch ~/ 1000,
+      ),
+      (
+        '1 hour',
+        false,
+        now.add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
+      ),
+      (
+        '2 hours',
+        false,
+        now.add(const Duration(hours: 2)).millisecondsSinceEpoch ~/ 1000,
+      ),
+      (
+        '8 hours',
+        false,
+        now.add(const Duration(hours: 8)).millisecondsSinceEpoch ~/ 1000,
+      ),
+      ('Until tomorrow', false, tomorrow.millisecondsSinceEpoch ~/ 1000),
+      ('Until resumed', false, NotificationPolicy.untilResumed),
+    ];
+    if (current != null && !choices.any((choice) => choice.$3 == current)) {
+      choices.insert(overrides == null ? 0 : 1, (
+        'Current mute',
+        false,
+        current,
+      ));
+    }
     final selected = await showDialog<(bool, int?)>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const LText('Mute notifications'),
         children: [
-          if (repository is TopicNotificationPolicyRepository)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, (true, null)),
-              child: const LText('Use global setting'),
-            ),
-          for (final choice in <(String, int)>[
-            ('Show all notifications', 0),
-            (
-              '30 minutes',
-              now.add(const Duration(minutes: 30)).millisecondsSinceEpoch ~/
-                  1000,
-            ),
-            (
-              '1 hour',
-              now.add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
-            ),
-            (
-              '2 hours',
-              now.add(const Duration(hours: 2)).millisecondsSinceEpoch ~/ 1000,
-            ),
-            (
-              '8 hours',
-              now.add(const Duration(hours: 8)).millisecondsSinceEpoch ~/ 1000,
-            ),
-            ('Until tomorrow', tomorrow.millisecondsSinceEpoch ~/ 1000),
-            ('Until resumed', NotificationPolicy.untilResumed),
-          ])
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(context, (false, choice.$2)),
+          for (final choice in choices)
+            DesignRadioDialogOption(
+              selected: choice.$3 == current,
+              onPressed: () => Navigator.pop(context, (choice.$2, choice.$3)),
               child: LText(choice.$1),
             ),
         ],
       ),
     );
     if (selected == null) return;
-    if (repository is TopicNotificationPolicyRepository) {
-      final overrideRepository =
-          repository as TopicNotificationPolicyRepository;
-      final overrides = await overrideRepository
-          .loadTopicNotificationPolicyOverrides(_subscription.id);
+    if (overrideRepository != null) {
       await overrideRepository.setTopicNotificationPolicyOverrides(
         _subscription.id,
-        overrides.copyWith(mutedUntilEpochSeconds: selected.$2),
+        overrides!.copyWith(mutedUntilEpochSeconds: selected.$2),
       );
     } else if (selected.$2 != null) {
       await repository.setTopicNotificationPolicy(
@@ -738,107 +755,107 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         child: Scaffold(
           resizeToAvoidBottomInset: false,
           body: CollapsibleDesignBody(
-          scrollController: _scrollController,
-          forceCollapsed: _searching,
-          onCollapsedTitleTap: _searching
-              ? null
-              : () => unawaited(_openSettings()),
-          leading: IconButton(
-            key: _searching ? const Key('topic-search-back') : null,
-            tooltip: tr(context, 'Back'),
-            onPressed: _searching
-                ? () => setState(() {
-                    _searching = false;
-                    _search.clear();
-                  })
-                : () => Navigator.maybePop(context),
-            icon: const Icon(Icons.arrow_back),
-          ),
-          title: _searching
-              ? TextField(
-                  key: const Key('topic-search-field'),
-                  controller: _search,
-                  autofocus: true,
-                  textInputAction: TextInputAction.search,
-                  style: theme.textTheme.bodyLarge?.copyWith(fontSize: 18),
-                  decoration: InputDecoration(
-                    filled: false,
-                    isDense: true,
-                    contentPadding: EdgeInsets.zero,
-                    hintStyle: theme.textTheme.bodyLarge?.copyWith(
-                      fontSize: 18,
-                      color: theme.colorScheme.onSurfaceVariant,
+            scrollController: _scrollController,
+            forceCollapsed: _searching,
+            onCollapsedTitleTap: _searching
+                ? null
+                : () => unawaited(_openSettings()),
+            leading: IconButton(
+              key: _searching ? const Key('topic-search-back') : null,
+              tooltip: tr(context, 'Back'),
+              onPressed: _searching
+                  ? () => setState(() {
+                      _searching = false;
+                      _search.clear();
+                    })
+                  : () => Navigator.maybePop(context),
+              icon: const Icon(Icons.arrow_back),
+            ),
+            title: _searching
+                ? TextField(
+                    key: const Key('topic-search-field'),
+                    controller: _search,
+                    autofocus: true,
+                    textInputAction: TextInputAction.search,
+                    style: theme.textTheme.bodyLarge?.copyWith(fontSize: 18),
+                    decoration: InputDecoration(
+                      filled: false,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      hintStyle: theme.textTheme.bodyLarge?.copyWith(
+                        fontSize: 18,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      hintText: tr(context, 'Search in notifications'),
+                      border: InputBorder.none,
+                      enabledBorder: InputBorder.none,
+                      focusedBorder: InputBorder.none,
                     ),
-                    hintText: tr(context, 'Search in notifications'),
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
+                    onChanged: (_) => setState(() {}),
+                  )
+                : Builder(
+                    builder: (context) => Material(
+                      color: Colors.transparent,
+                      textStyle: DefaultTextStyle.of(context).style,
+                      child: LText(
+                        _subscription.displayName ??
+                            Uri.parse(_subscription.url).pathSegments.last,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
                   ),
-                  onChanged: (_) => setState(() {}),
-                )
-              : Builder(
-                  builder: (context) => Material(
-                    color: Colors.transparent,
-                    textStyle: DefaultTextStyle.of(context).style,
+            actions: _searching ? const [] : _topicActions(),
+            child: Column(
+              children: [
+                if (!_searching && _state.status != FeedStatus.connected)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
                     child: LText(
-                      _subscription.displayName ??
-                          Uri.parse(_subscription.url).pathSegments.last,
+                      _statusLabel(_state),
+                      key: const Key('feed-status'),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      style: monoLabel.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ),
+                Expanded(
+                  child:
+                      _state.messages.isEmpty &&
+                          _state.status == FeedStatus.loading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _buildMessages(),
                 ),
-          actions: _searching ? const [] : _topicActions(),
-          child: Column(
-            children: [
-              if (!_searching && _state.status != FeedStatus.connected)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: LText(
-                    _statusLabel(_state),
-                    key: const Key('feed-status'),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: monoLabel.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              Expanded(
-                child:
-                    _state.messages.isEmpty &&
-                        _state.status == FeedStatus.loading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _buildMessages(),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        bottomNavigationBar: widget.showMessageBar
-            ? AnimatedPadding(
-                duration: const Duration(milliseconds: 180),
-                curve: Curves.easeOutCubic,
-                padding: EdgeInsets.only(bottom: keyboardInset),
-                child: _MessageBar(
-                  controller: _quickMessage,
-                  sending: _publishing,
-                  error: _publishError,
-                  onExpand: _openComposer,
-                  onSend: _quickPublish,
-                ),
-              )
-            : null,
+          bottomNavigationBar: widget.showMessageBar
+              ? AnimatedPadding(
+                  duration: const Duration(milliseconds: 180),
+                  curve: Curves.easeOutCubic,
+                  padding: EdgeInsets.only(bottom: keyboardInset),
+                  child: _MessageBar(
+                    controller: _quickMessage,
+                    sending: _publishing,
+                    error: _publishError,
+                    onExpand: _openComposer,
+                    onSend: _quickPublish,
+                  ),
+                )
+              : null,
           floatingActionButton: _showNewMessages
-            ? FloatingActionButton.extended(
-                key: const Key('new-messages-action'),
-                onPressed: _scrollToLatest,
-                icon: Icon(
-                  widget.newMessagesAtBottom
-                      ? Icons.arrow_downward
-                      : Icons.arrow_upward,
-                ),
-                label: const LText('New messages'),
-              )
+              ? FloatingActionButton.extended(
+                  key: const Key('new-messages-action'),
+                  onPressed: _scrollToLatest,
+                  icon: Icon(
+                    widget.newMessagesAtBottom
+                        ? Icons.arrow_downward
+                        : Icons.arrow_upward,
+                  ),
+                  label: const LText('New messages'),
+                )
               : null,
         ),
       ),

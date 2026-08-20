@@ -420,6 +420,40 @@ final lightTheme = designTheme(brightness: Brightness.light);
 
 final darkTheme = designTheme(brightness: Brightness.dark);
 
+class DesignRadioDialogOption extends StatelessWidget {
+  const DesignRadioDialogOption({
+    required this.selected,
+    required this.onPressed,
+    required this.child,
+    super.key,
+  });
+
+  final bool selected;
+  final VoidCallback onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    selected: selected,
+    inMutuallyExclusiveGroup: true,
+    child: SimpleDialogOption(
+      onPressed: onPressed,
+      child: Row(
+        children: [
+          Icon(
+            selected
+                ? Icons.radio_button_checked
+                : Icons.radio_button_unchecked,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 16),
+          Expanded(child: child),
+        ],
+      ),
+    ),
+  );
+}
+
 class DesignSwipeToDelete extends StatefulWidget {
   const DesignSwipeToDelete({
     required this.dismissKey,
@@ -966,6 +1000,7 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
   }
 }
 
+
 /// [ScrollBehavior] for bodies under a [CollapsibleDesignBody]: always
 /// scrollable, and forward user drags collapse the header before the list
 /// scrolls.
@@ -1023,4 +1058,3 @@ class _DesignHeaderScrollPhysics extends ScrollPhysics {
     return super.applyPhysicsToUserOffset(position, offset);
   }
 }
-

@@ -1,13 +1,128 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/notifications.dart';
 import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 
 void main() {
+  test(
+    'subscription check verifies and then reuses Basic credentials',
+    () async {
+      final expectedAuthorization =
+          'Basic ${base64Encode(utf8.encode('rahul:secret'))}';
+      final seenAuthorization = <String?>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        final authorization = request.headers.value(
+          HttpHeaders.authorizationHeader,
+        );
+        seenAuthorization.add(authorization);
+        if (authorization != expectedAuthorization) {
+          request.response.statusCode = HttpStatus.forbidden;
+        } else {
+          request.response.headers.contentType = ContentType(
+            'application',
+            'x-ndjson',
+            charset: 'utf-8',
+          );
+        }
+        await request.response.close();
+      });
+      final settings = AppSettingsStore(
+        preferences: _MemoryPreferences(),
+        secrets: _MemorySecrets(),
+      );
+      final checker = HttpSubscriptionAccessChecker(settings);
+      final origin = 'http://${server.address.address}:${server.port}';
+      final topicUrl = '$origin/alerts';
+      const username = 'rahul';
+      const password = 'secret';
+      final account = ServerAccount(
+        baseUrl: origin,
+        username: username,
+        password: password,
+      );
+
+      expect(
+        await checker.check(topicUrl: topicUrl),
+        SubscriptionAccess.authenticationRequired,
+      );
+      expect(
+        await checker.check(topicUrl: topicUrl, account: account),
+        SubscriptionAccess.allowed,
+      );
+      await settings.saveAccount(account);
+      expect(
+        await checker.check(topicUrl: topicUrl),
+        SubscriptionAccess.allowed,
+      );
+      expect(seenAuthorization, [
+        null,
+        expectedAuthorization,
+        expectedAuthorization,
+      ]);
+    },
+  );
+
+  test('subscription check rejects a non-ntfy service', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      request.response.headers.contentType = ContentType.html;
+      request.response.write('<html>Not ntfy</html>');
+      await request.response.close();
+    });
+    final checker = HttpSubscriptionAccessChecker(
+      AppSettingsStore(
+        preferences: _MemoryPreferences(),
+        secrets: _MemorySecrets(),
+      ),
+    );
+
+    await expectLater(
+      checker.check(
+        topicUrl: 'http://${server.address.address}:${server.port}/alerts',
+      ),
+      throwsA(
+        isA<SubscriptionAccessException>().having(
+          (error) => error.message,
+          'message',
+          'This URL does not appear to be an ntfy server.',
+        ),
+      ),
+    );
+  });
+
+  test('subscription check reports an unreachable server', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    final address = server.address.address;
+    final port = server.port;
+    await server.close(force: true);
+    final checker = HttpSubscriptionAccessChecker(
+      AppSettingsStore(
+        preferences: _MemoryPreferences(),
+        secrets: _MemorySecrets(),
+      ),
+    );
+
+    await expectLater(
+      checker.check(topicUrl: 'http://$address:$port/alerts'),
+      throwsA(
+        isA<SubscriptionAccessException>().having(
+          (error) => error.message,
+          'message',
+          'Could not reach this server. Check the address and try again.',
+        ),
+      ),
+    );
+  });
+
   test('parser accepts normal fields and ignores non-message input', () {
     final parsed = parseNtfyLine(
       jsonEncode({
@@ -326,6 +441,32 @@ class _EofClient implements NtfyStreamClient {
     connections++;
     return FeedConnection(lines: const Stream.empty());
   }
+}
+
+class _MemoryPreferences implements PreferencesBackend {
+  final values = <String, String>{};
+
+  @override
+  String? getString(String key) => values[key];
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    values[key] = value;
+    return true;
+  }
+}
+
+class _MemorySecrets implements SecretBackend {
+  final values = <String, String>{};
+
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
 }
 
 class _RecordingNotificationPlatform implements NotificationPlatform {

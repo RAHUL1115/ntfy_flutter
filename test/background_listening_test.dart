@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:ntfy_flutter/app_settings.dart';
 import 'package:ntfy_flutter/background_listening.dart';
 import 'package:ntfy_flutter/messages.dart';
 import 'package:ntfy_flutter/notifications.dart';
@@ -10,6 +12,59 @@ import 'package:ntfy_flutter/subscriptions.dart';
 import 'package:ntfy_flutter/topic_feed.dart';
 
 void main() {
+  test('saved server login delivers background notifications', () async {
+    final expectedAuthorization =
+        'Basic ${base64Encode(utf8.encode('rahul:secret'))}';
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      if (request.headers.value(HttpHeaders.authorizationHeader) !=
+          expectedAuthorization) {
+        request.response.statusCode = HttpStatus.forbidden;
+      } else {
+        request.response.headers.contentType = ContentType(
+          'application',
+          'x-ndjson',
+          charset: 'utf-8',
+        );
+        request.response.writeln(
+          jsonEncode({
+            'event': 'message',
+            'topic': 'alerts',
+            'id': 'authenticated-message',
+            'time': 1,
+            'message': 'Private alert',
+          }),
+        );
+      }
+      await request.response.close();
+    });
+    final origin = 'http://${server.address.address}:${server.port}';
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await settings.saveAccount(
+      ServerAccount(baseUrl: origin, username: 'rahul', password: 'secret'),
+    );
+    final repository = _MemoryRepository()..enabled = true;
+    final subscription = await repository.add(url: '$origin/alerts');
+    final platform = _RecordingNotificationPlatform();
+    final runtime = BackgroundListenerRuntime(
+      repository,
+      clientFactory: (_) => HttpNtfyStreamClient(profiles: settings),
+      notifications: MessageNotificationSession(platform),
+      retryDelays: const [Duration(days: 1)],
+    );
+    addTearDown(runtime.stop);
+
+    expect(await runtime.start(), isTrue);
+    await _until(() async => platform.requests.isNotEmpty);
+
+    expect(platform.requests.single.subscriptionId, subscription.id);
+    expect(platform.requests.single.body, 'Private alert');
+  });
+
   test(
     'enabling and disabling persists intent and controls the host',
     () async {
@@ -490,6 +545,32 @@ class _RecordingConnectionAlertPlatform implements ConnectionAlertPlatform {
 
   @override
   Future<void> clear() async => clears++;
+}
+
+class _MemoryPreferences implements PreferencesBackend {
+  final values = <String, String>{};
+
+  @override
+  String? getString(String key) => values[key];
+
+  @override
+  Future<bool> setString(String key, String value) async {
+    values[key] = value;
+    return true;
+  }
+}
+
+class _MemorySecrets implements SecretBackend {
+  final values = <String, String>{};
+
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
 }
 
 class _RecordingHost implements BackgroundListeningHost {

@@ -59,6 +59,98 @@ class FeedHttpException implements Exception {
   String toString() => 'ntfy returned HTTP $statusCode for $uri.';
 }
 
+enum SubscriptionAccess { allowed, authenticationRequired }
+
+abstract interface class SubscriptionAccessChecker {
+  Future<SubscriptionAccess> check({
+    required String topicUrl,
+    ServerAccount? account,
+  });
+}
+
+class SubscriptionAccessException implements Exception {
+  const SubscriptionAccessException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+class HttpSubscriptionAccessChecker implements SubscriptionAccessChecker {
+  const HttpSubscriptionAccessChecker(
+    this.profiles, {
+    this.timeout = const Duration(seconds: 10),
+  });
+
+  final AppSettingsRepository profiles;
+  final Duration timeout;
+
+  @override
+  Future<SubscriptionAccess> check({
+    required String topicUrl,
+    ServerAccount? account,
+  }) async {
+    final topicUri = Uri.parse(topicUrl);
+    final uri = buildFeedUri(
+      topicUrl,
+      null,
+    ).replace(queryParameters: {'poll': '1', 'since': 'latest'});
+    final profile = await profiles.profileFor(topicUri);
+    final client = HttpClient(context: profile.securityContext)
+      ..connectionTimeout = timeout;
+    try {
+      final request = await client.getUrl(uri).timeout(timeout);
+      profile.apply(request);
+      if (account != null) {
+        request.headers.set(
+          HttpHeaders.authorizationHeader,
+          'Basic ${base64Encode(utf8.encode('${account.username}:${account.password}'))}',
+        );
+      }
+      request.headers.set(HttpHeaders.acceptHeader, 'application/x-ndjson');
+      final response = await request.close().timeout(timeout);
+      if (response.statusCode == HttpStatus.unauthorized ||
+          response.statusCode == HttpStatus.forbidden) {
+        await response.drain<void>().timeout(timeout);
+        return SubscriptionAccess.authenticationRequired;
+      }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        await response.drain<void>().timeout(timeout);
+        throw const SubscriptionAccessException(
+          'The server could not validate this topic. Try again later.',
+        );
+      }
+      final type = response.headers.contentType?.mimeType;
+      await response.drain<void>().timeout(timeout);
+      if (type != 'application/x-ndjson' && type != 'application/json') {
+        throw const SubscriptionAccessException(
+          'This URL does not appear to be an ntfy server.',
+        );
+      }
+      return SubscriptionAccess.allowed;
+    } on TimeoutException {
+      throw const SubscriptionAccessException(
+        'The server did not respond in time.',
+      );
+    } on HandshakeException {
+      throw const SubscriptionAccessException(
+        'Could not establish a secure connection to this server.',
+      );
+    } on CertificateException {
+      throw const SubscriptionAccessException(
+        'Could not establish a secure connection to this server.',
+      );
+    } on SocketException {
+      throw const SubscriptionAccessException(
+        'Could not reach this server. Check the address and try again.',
+      );
+    } finally {
+      client.close(force: true);
+    }
+  }
+}
+
 class HttpNtfyStreamClient
     implements NtfyStreamClient, AbortableNtfyStreamClient {
   HttpNtfyStreamClient({this.profiles});

@@ -9,7 +9,8 @@
         android:usesCleartextTraffic="true"
         android:label="ntfy"
         android:name=".NtfyApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_ntfy_launcher"
+        android:roundIcon="@mipmap/ic_ntfy_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"

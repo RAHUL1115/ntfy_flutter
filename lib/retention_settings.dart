@@ -330,6 +330,9 @@ class _NotificationPolicySettingsState
   Future<void> _selectMute() async {
     final now = DateTime.now();
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final current = widget.subscriptionId == null
+        ? _policy?.mutedUntilEpochSeconds
+        : _overrides?.mutedUntilEpochSeconds;
     final choices = <(String, int?)>[
       if (widget.subscriptionId != null) ('Use global setting', null),
       ('Show all notifications', 0),
@@ -352,13 +355,20 @@ class _NotificationPolicySettingsState
       ('Until tomorrow', tomorrow.millisecondsSinceEpoch ~/ 1000),
       ('Until resumed', NotificationPolicy.untilResumed),
     ];
+    if (current != null && !choices.any((choice) => choice.$2 == current)) {
+      choices.insert(widget.subscriptionId == null ? 0 : 1, (
+        _muteSummary(current),
+        current,
+      ));
+    }
     final selected = await showDialog<(String, int?)>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const LText('Mute notifications'),
         children: [
           for (final choice in choices)
-            SimpleDialogOption(
+            DesignRadioDialogOption(
+              selected: choice.$2 == current,
               onPressed: () => Navigator.pop(context, choice),
               child: LText(choice.$1),
             ),
@@ -379,18 +389,23 @@ class _NotificationPolicySettingsState
   }
 
   Future<void> _selectPriority() async {
+    final current = widget.subscriptionId == null
+        ? _policy?.minimumPriority
+        : _overrides?.minimumPriority;
     final selected = await showDialog<(bool, int?)>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const LText('Minimum priority'),
         children: [
           if (widget.subscriptionId != null)
-            SimpleDialogOption(
+            DesignRadioDialogOption(
+              selected: current == null,
               onPressed: () => Navigator.pop(context, (true, null)),
               child: const LText('Use global setting'),
             ),
           for (var priority = 1; priority <= 5; priority++)
-            SimpleDialogOption(
+            DesignRadioDialogOption(
+              selected: current == priority,
               onPressed: () => Navigator.pop(context, (false, priority)),
               child: LText('$priority — ${_priorityName(priority)}'),
             ),
@@ -409,13 +424,17 @@ class _NotificationPolicySettingsState
   }
 
   Future<void> _selectDownloadPolicy() async {
+    final current = widget.subscriptionId == null
+        ? _policy?.attachmentDownloadMaxBytes
+        : _overrides?.attachmentDownloadMaxBytes;
     final selected = await showDialog<(bool, int?)>(
       context: context,
       builder: (context) => SimpleDialog(
         title: const LText('Download attachments'),
         children: [
           if (widget.subscriptionId != null)
-            SimpleDialogOption(
+            DesignRadioDialogOption(
+              selected: current == null,
               onPressed: () => Navigator.pop(context, (true, null)),
               child: const LText('Use global setting'),
             ),
@@ -429,7 +448,8 @@ class _NotificationPolicySettingsState
             (10485760, 'Up to 10 MB'),
             (52428800, 'Up to 50 MB'),
           ])
-            SimpleDialogOption(
+            DesignRadioDialogOption(
+              selected: current == value.$1,
               onPressed: () => Navigator.pop(context, (false, value.$1)),
               child: LText(value.$2),
             ),
@@ -451,6 +471,7 @@ class _NotificationPolicySettingsState
 
   Future<void> _selectBooleanOverride({
     required String title,
+    required bool? current,
     required void Function(bool? value) save,
   }) async {
     final selected = await showDialog<String>(
@@ -463,7 +484,12 @@ class _NotificationPolicySettingsState
             ('on', 'Enabled'),
             ('off', 'Disabled'),
           ])
-            SimpleDialogOption(
+            DesignRadioDialogOption(
+              selected: switch (value.$1) {
+                'on' => current == true,
+                'off' => current == false,
+                _ => current == null,
+              },
               onPressed: () => Navigator.pop(context, value.$1),
               child: LText(value.$2),
             ),
@@ -560,6 +586,7 @@ class _NotificationPolicySettingsState
                     ? null
                     : () => _selectBooleanOverride(
                         title: 'Keep alerting for highest priority',
+                        current: overrides.insistentMaxPriority,
                         save: (value) => unawaited(
                           _saveOverrides(
                             overrides.copyWith(insistentMaxPriority: value),
@@ -578,6 +605,7 @@ class _NotificationPolicySettingsState
                     ? null
                     : () => _selectBooleanOverride(
                         title: 'Dedicated notification channel',
+                        current: overrides.dedicatedChannel,
                         save: (value) => unawaited(
                           _saveOverrides(
                             overrides.copyWith(dedicatedChannel: value),
@@ -703,24 +731,10 @@ class _RetentionSettingsState extends State<_RetentionSettings> {
         title: const LText('Delete notifications'),
         children: [
           for (final choice in choices)
-            Semantics(
+            DesignRadioDialogOption(
               selected: _selected(settings, choice.period),
-              inMutuallyExclusiveGroup: true,
-              child: SimpleDialogOption(
-                onPressed: () => Navigator.pop(context, choice),
-                child: Row(
-                  children: [
-                    Icon(
-                      _selected(settings, choice.period)
-                          ? Icons.radio_button_checked
-                          : Icons.radio_button_unchecked,
-                      color: Theme.of(context).colorScheme.primary,
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(child: LText(choice.label)),
-                  ],
-                ),
-              ),
+              onPressed: () => Navigator.pop(context, choice),
+              child: LText(choice.label),
             ),
         ],
       ),
@@ -910,13 +924,16 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
       context: context,
       builder: (context) => AlertDialog(
         title: const LText('Default server'),
-        content: TextField(
-          key: const Key('default-server-field'),
-          controller: controller,
-          keyboardType: TextInputType.url,
-          decoration: InputDecoration(
-            hintText: tr(context, 'https://ntfy.sh'),
-            helperText: tr(context, 'Used when subscribing to a new topic.'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: TextField(
+            key: const Key('default-server-field'),
+            controller: controller,
+            keyboardType: TextInputType.url,
+            decoration: InputDecoration(
+              hintText: tr(context, 'https://ntfy.sh'),
+              helperText: tr(context, 'Used when subscribing to a new topic.'),
+            ),
           ),
         ),
         actions: [
@@ -943,7 +960,26 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
     }
   }
 
-  Future<T?> _choose<T>(String title, List<(String, T)> values) =>
+  Future<T?> _choose<T>(
+    String title,
+    List<(String, T)> values, {
+    required T selected,
+  }) => showDialog<T>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: LText(title),
+      children: [
+        for (final value in values)
+          DesignRadioDialogOption(
+            selected: value.$2 == selected,
+            onPressed: () => Navigator.pop(context, value.$2),
+            child: LText(value.$1),
+          ),
+      ],
+    ),
+  );
+
+  Future<T?> _chooseAction<T>(String title, List<(String, T)> values) =>
       showDialog<T>(
         context: context,
         builder: (context) => SimpleDialog(
@@ -967,7 +1003,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
       ('Everything', BackupMode.everything),
       ('Everything, except users', BackupMode.everythingNoUsers),
       ('Settings only', BackupMode.settingsOnly),
-    ]);
+    ], selected: settings.backupMode);
     if (mode == null) return;
     final updated = settings.copyWith(backupMode: mode);
     await widget.repository.saveSettings(updated);
@@ -1063,7 +1099,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
   }
 
   Future<void> _exportLogs() async {
-    final action = await _choose('Export logs', const [
+    final action = await _chooseAction('Export logs', const [
       ('Copy original', ('copy', false)),
       ('Copy scrubbed', ('copy', true)),
       ('Share original', ('share', false)),
@@ -1134,7 +1170,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                   const ('System default', 'system'),
                   for (final language in supportedAppLanguages)
                     (language.$2, language.$1),
-                ]);
+                ], selected: settings.languageTag);
                 if (value != null) {
                   await _save(settings.copyWith(languageTag: value));
                 }
@@ -1158,7 +1194,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                   ('Follow system', AppThemePreference.system),
                   ('On', AppThemePreference.dark),
                   ('Off', AppThemePreference.light),
-                ]);
+                ], selected: settings.theme);
                 if (value != null) await _save(settings.copyWith(theme: value));
               },
             ),
@@ -1181,7 +1217,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                   ('Violet', AppAccentPreference.violet),
                   ('Rose', AppAccentPreference.rose),
                   ('Orange', AppAccentPreference.orange),
-                ]);
+                ], selected: settings.accentColor);
                 if (value != null) {
                   await _save(settings.copyWith(accentColor: value));
                 }
@@ -1204,7 +1240,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                   ('Default', AppFontScalePreference.standard),
                   ('Large', AppFontScalePreference.large),
                   ('Extra large', AppFontScalePreference.extraLarge),
-                ]);
+                ], selected: settings.fontScale);
                 if (value != null) {
                   await _save(settings.copyWith(fontScale: value));
                 }
@@ -1271,7 +1307,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                   ('After 1 hour', 3600),
                   ('After 3 hours', 10800),
                   ('After 12 hours', 43200),
-                ]);
+                ], selected: settings.connectionAlertSeconds);
                 if (value != null) {
                   await _save(settings.copyWith(connectionAlertSeconds: value));
                 }
@@ -1289,7 +1325,7 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 final value = await _choose('Connection protocol', const [
                   ('HTTP stream', ConnectionProtocol.http),
                   ('WebSocket', ConnectionProtocol.websocket),
-                ]);
+                ], selected: settings.protocol);
                 if (value != null) {
                   await _save(settings.copyWith(protocol: value));
                 }
@@ -1458,23 +1494,30 @@ class _AccountsScreenState extends State<_AccountsScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const LText('Add user'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: server,
-              decoration: InputDecoration(labelText: tr(context, 'Server URL')),
-            ),
-            TextField(
-              controller: username,
-              decoration: InputDecoration(labelText: tr(context, 'Username')),
-            ),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: InputDecoration(labelText: tr(context, 'Password')),
-            ),
-          ],
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: server,
+                decoration: InputDecoration(
+                  labelText: tr(context, 'Server URL'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: username,
+                decoration: InputDecoration(labelText: tr(context, 'Username')),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: password,
+                obscureText: true,
+                decoration: InputDecoration(labelText: tr(context, 'Password')),
+              ),
+            ],
+          ),
         ),
         actions: [
           TextButton(

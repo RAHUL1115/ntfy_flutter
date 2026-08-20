@@ -41,8 +41,12 @@ class NtfyApp extends StatefulWidget {
     this.backgroundListening,
     this.notifications,
     this.settings,
+    SubscriptionAccessChecker? subscriptionAccessChecker,
     super.key,
-  }) : publisher = publisher ?? HttpNtfyPublisher(profiles: settings);
+  }) : publisher = publisher ?? HttpNtfyPublisher(profiles: settings),
+       subscriptionAccessChecker =
+           subscriptionAccessChecker ??
+           (settings == null ? null : HttpSubscriptionAccessChecker(settings));
 
   final AppRepository store;
   final TopicFeedFactory? feedFactory;
@@ -51,6 +55,7 @@ class NtfyApp extends StatefulWidget {
   final BackgroundListeningSession? backgroundListening;
   final MessageNotificationSession? notifications;
   final AppSettingsRepository? settings;
+  final SubscriptionAccessChecker? subscriptionAccessChecker;
 
   @override
   State<NtfyApp> createState() => _NtfyAppState();
@@ -196,6 +201,7 @@ class _NtfyAppState extends State<NtfyApp> {
         notifications: _notifications,
         routeObserver: _routeObserver,
         settings: widget.settings,
+        subscriptionAccessChecker: widget.subscriptionAccessChecker,
         appSettings: _appSettings,
         onSettingsChanged: _loadSettings,
       ),
@@ -217,6 +223,7 @@ class SubscriptionsScreen extends StatefulWidget {
     required this.notifications,
     required this.routeObserver,
     this.settings,
+    this.subscriptionAccessChecker,
     this.appSettings = const AppSettings(),
     this.onSettingsChanged,
     super.key,
@@ -229,6 +236,7 @@ class SubscriptionsScreen extends StatefulWidget {
   final MessageNotificationSession notifications;
   final RouteObserver<PageRoute<dynamic>> routeObserver;
   final AppSettingsRepository? settings;
+  final SubscriptionAccessChecker? subscriptionAccessChecker;
   final AppSettings appSettings;
   final Future<void> Function()? onSettingsChanged;
 
@@ -476,6 +484,8 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
       builder: (_) => _SubscribeDialog(
         store: widget.store,
         defaultServer: widget.appSettings.defaultServer,
+        settings: widget.settings,
+        accessChecker: widget.subscriptionAccessChecker,
       ),
     );
     if (saved != null) {
@@ -957,10 +967,17 @@ class _UnreadBadge extends StatelessWidget {
 }
 
 class _SubscribeDialog extends StatefulWidget {
-  const _SubscribeDialog({required this.store, required this.defaultServer});
+  const _SubscribeDialog({
+    required this.store,
+    required this.defaultServer,
+    this.settings,
+    this.accessChecker,
+  });
 
   final SubscriptionRepository store;
   final String defaultServer;
+  final AppSettingsRepository? settings;
+  final SubscriptionAccessChecker? accessChecker;
 
   @override
   State<_SubscribeDialog> createState() => _SubscribeDialogState();
@@ -969,9 +986,13 @@ class _SubscribeDialog extends StatefulWidget {
 class _SubscribeDialogState extends State<_SubscribeDialog> {
   final _urlController = TextEditingController();
   final _nameController = TextEditingController();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
   String? _error;
+  String? _pendingUrl;
   bool _saving = false;
   bool _useAnotherServer = false;
+  bool _showLogin = false;
 
   @override
   void initState() {
@@ -985,6 +1006,8 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
       ..removeListener(_urlChanged)
       ..dispose();
     _nameController.dispose();
+    _usernameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -1003,19 +1026,80 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
           : input.split('/').first.contains('.')
           ? 'https://$input'
           : '${widget.defaultServer.replaceFirst(RegExp(r'/+$'), '')}/${input.replaceFirst(RegExp(r'^/+'), '')}';
-      final subscription = await widget.store.add(
-        url: url,
-        displayName: _nameController.text,
-      );
-      if (mounted) {
-        setState(() => _saving = false);
-        Navigator.pop(context, subscription);
+      final normalizedUrl = SubscriptionStore.normalizeUrl(url);
+      final access = await widget.accessChecker?.check(topicUrl: normalizedUrl);
+      if (access == SubscriptionAccess.authenticationRequired) {
+        await _requestLogin(normalizedUrl);
+        return;
       }
+      await _createSubscription(normalizedUrl);
     } on SubscriptionException catch (error) {
+      _showError(error.message);
+    } on SubscriptionAccessException catch (error) {
       _showError(error.message);
     } catch (_) {
       _showError('Could not save the subscription. Please try again.');
     }
+  }
+
+  Future<void> _requestLogin(String url) async {
+    final settings = widget.settings;
+    if (settings == null) {
+      _showError('Sign-in is not available.');
+      return;
+    }
+    final origin = normalizeServerOrigin(url);
+    final existing = (await settings.loadAccounts())
+        .where((account) => account.baseUrl == origin)
+        .firstOrNull;
+    if (!mounted) return;
+    _usernameController.text = existing?.username ?? '';
+    _passwordController.clear();
+    setState(() {
+      _pendingUrl = url;
+      _showLogin = true;
+      _saving = false;
+      _error = null;
+    });
+  }
+
+  Future<void> _authenticate() async {
+    final url = _pendingUrl;
+    final settings = widget.settings;
+    final checker = widget.accessChecker;
+    if (url == null || settings == null || checker == null) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final account = ServerAccount(
+      baseUrl: normalizeServerOrigin(url),
+      username: _usernameController.text.trim(),
+      password: _passwordController.text,
+    );
+    try {
+      final access = await checker.check(topicUrl: url, account: account);
+      if (access == SubscriptionAccess.authenticationRequired) {
+        _showError('This login cannot access the topic.');
+        return;
+      }
+      await settings.saveAccount(account);
+      await _createSubscription(url);
+    } on SubscriptionException catch (error) {
+      _showError(error.message);
+    } on SubscriptionAccessException catch (error) {
+      _showError(error.message);
+    } catch (_) {
+      _showError('Could not sign in. Please try again.');
+    }
+  }
+
+  Future<void> _createSubscription(String url) async {
+    final subscription = await widget.store.add(
+      url: url,
+      displayName: _nameController.text,
+    );
+    if (mounted) Navigator.pop(context, subscription);
   }
 
   void _showError(String message) {
@@ -1030,7 +1114,12 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final canSave = !_saving && _urlController.text.trim().isNotEmpty;
+    final canSave =
+        !_saving &&
+        (_showLogin
+            ? _usernameController.text.trim().isNotEmpty &&
+                  _passwordController.text.isNotEmpty
+            : _urlController.text.trim().isNotEmpty);
     return PopScope(
       canPop: !_saving,
       child: FractionallySizedBox(
@@ -1044,15 +1133,22 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
                 children: [
                   Expanded(
                     child: LText(
-                      'Subscribe to topic',
+                      _showLogin ? 'Sign in to server' : 'Subscribe to topic',
                       style: Theme.of(context).textTheme.titleLarge
                           ?.copyWith(fontSize: 22, fontWeight: FontWeight.w600),
                     ),
                   ),
                   IconButton(
-                    tooltip: tr(context, 'Cancel'),
-                    onPressed: _saving ? null : () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
+                    tooltip: tr(context, _showLogin ? 'Back' : 'Cancel'),
+                    onPressed: _saving
+                        ? null
+                        : _showLogin
+                        ? () => setState(() {
+                            _showLogin = false;
+                            _error = null;
+                          })
+                        : () => Navigator.pop(context),
+                    icon: Icon(_showLogin ? Icons.arrow_back : Icons.close),
                   ),
                 ],
               ),
@@ -1061,69 +1157,101 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(16, 20, 16, 20),
-                children: [
-                  TextField(
-                    key: const Key('topic-url-field'),
-                    controller: _urlController,
-                    autofocus: false,
-                    keyboardType: TextInputType.url,
-                    autocorrect: false,
-                    decoration: InputDecoration(
-                      floatingLabelBehavior: FloatingLabelBehavior.always,
-                      labelText: tr(
-                        context,
-                        _useAnotherServer ? 'Topic URL' : 'Topic name',
-                      ).toUpperCase(),
-                      hintText: tr(
-                        context,
-                        _useAnotherServer
-                            ? 'https://ntfy.sh/my_alerts'
-                            : 'my_alerts',
-                      ),
-                      prefix: _useAnotherServer
-                          ? null
-                          : Text('${Uri.parse(widget.defaultServer).host}/'),
-                      helperText: tr(
-                        context,
-                        'Topic names are public. Avoid sensitive information.',
-                      ),
-                      errorText: _error,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      onPressed: _saving
-                          ? null
-                          : () => setState(
-                              () => _useAnotherServer = !_useAnotherServer,
+                children: _showLogin
+                    ? [
+                        LText(
+                          normalizeServerOrigin(_pendingUrl!),
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 20),
+                        TextField(
+                          key: const Key('server-username-field'),
+                          controller: _usernameController,
+                          enabled: !_saving,
+                          onChanged: (_) => setState(() => _error = null),
+                          decoration: InputDecoration(
+                            labelText: tr(context, 'Username').toUpperCase(),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        TextField(
+                          key: const Key('server-password-field'),
+                          controller: _passwordController,
+                          enabled: !_saving,
+                          obscureText: true,
+                          onChanged: (_) => setState(() => _error = null),
+                          decoration: InputDecoration(
+                            labelText: tr(context, 'Password').toUpperCase(),
+                            errorText: _error,
+                          ),
+                        ),
+                      ]
+                    : [
+                        TextField(
+                          key: const Key('topic-url-field'),
+                          controller: _urlController,
+                          autofocus: false,
+                          keyboardType: TextInputType.url,
+                          autocorrect: false,
+                          decoration: InputDecoration(
+                            floatingLabelBehavior: FloatingLabelBehavior.always,
+                            labelText: tr(
+                              context,
+                              _useAnotherServer ? 'Topic URL' : 'Topic name',
+                            ).toUpperCase(),
+                            hintText: tr(
+                              context,
+                              _useAnotherServer
+                                  ? 'https://ntfy.sh/my_alerts'
+                                  : 'my_alerts',
                             ),
-                      icon: Icon(
-                        _useAnotherServer
-                            ? Icons.keyboard_arrow_left
-                            : Icons.keyboard_arrow_right,
-                        size: 18,
-                      ),
-                      label: LText(
-                        _useAnotherServer
-                            ? 'Use default server'
-                            : 'Use another server',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    key: const Key('display-name-field'),
-                    controller: _nameController,
-                    decoration: InputDecoration(
-                      labelText: tr(
-                        context,
-                        'Display name (optional)',
-                      ).toUpperCase(),
-                    ),
-                  ),
-                ],
+                            prefix: _useAnotherServer
+                                ? null
+                                : Text(
+                                    '${Uri.parse(widget.defaultServer).host}/',
+                                  ),
+                            helperText: tr(
+                              context,
+                              'Topic names are public. Avoid sensitive information.',
+                            ),
+                            errorText: _error,
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: TextButton.icon(
+                            onPressed: _saving
+                                ? null
+                                : () => setState(
+                                    () =>
+                                        _useAnotherServer = !_useAnotherServer,
+                                  ),
+                            icon: Icon(
+                              _useAnotherServer
+                                  ? Icons.keyboard_arrow_left
+                                  : Icons.keyboard_arrow_right,
+                              size: 18,
+                            ),
+                            label: LText(
+                              _useAnotherServer
+                                  ? 'Use default server'
+                                  : 'Use another server',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextField(
+                          key: const Key('display-name-field'),
+                          controller: _nameController,
+                          decoration: InputDecoration(
+                            labelText: tr(
+                              context,
+                              'Display name (optional)',
+                            ).toUpperCase(),
+                          ),
+                        ),
+                      ],
               ),
             ),
             DecoratedBox(
@@ -1146,13 +1274,15 @@ class _SubscribeDialogState extends State<_SubscribeDialog> {
                   child: SizedBox(
                     height: 52,
                     child: FilledButton(
-                      onPressed: canSave ? _save : null,
+                      onPressed: canSave
+                          ? (_showLogin ? _authenticate : _save)
+                          : null,
                       child: _saving
                           ? const SizedBox.square(
                               dimension: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const LText('Subscribe'),
+                          : LText(_showLogin ? 'Sign in' : 'Subscribe'),
                     ),
                   ),
                 ),

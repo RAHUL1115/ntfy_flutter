@@ -35,6 +35,10 @@ class MessageNotificationAdapterTest {
 
     @Test
     fun testFivePrioritiesUseOfficialStyleChannelImportance() {
+        assertEquals(
+            R.mipmap.ic_ntfy_launcher,
+            instrumentation.targetContext.applicationInfo.icon,
+        )
         val expectedChannels = listOf("ntfy-min", "ntfy-low", "ntfy", "ntfy-high", "ntfy-max")
         val expectedImportance = listOf(
             NotificationManager.IMPORTANCE_MIN,
@@ -51,6 +55,12 @@ class MessageNotificationAdapterTest {
         val notifications = awaitActiveNotifications(5)
         assertEquals(expectedChannels, notifications.map { it.notification.channelId })
         assertEquals(expectedImportance, expectedChannels.map { manager.getNotificationChannel(it).importance })
+        assertTrue(
+            notifications.all {
+                it.notification.smallIcon.resId == R.drawable.ic_ntfy_notification
+            },
+        )
+        assertTrue(notifications.all { it.notification.getLargeIcon() == null })
     }
 
     @Test
