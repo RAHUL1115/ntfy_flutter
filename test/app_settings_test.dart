@@ -28,6 +28,9 @@ void main() {
         newMessagesAtBottom: true,
         connectionAlertSeconds: 900,
         protocol: ConnectionProtocol.websocket,
+        batteryPromptAfterEpochSeconds: 100,
+        websocketPromptAfterEpochSeconds: 200,
+        exactAlarmPromptAfterEpochSeconds: dismissedSetupPrompt,
         broadcastsEnabled: false,
         unifiedPushEnabled: true,
         recordLogs: true,
@@ -51,6 +54,21 @@ void main() {
 
     expect(migrated.accentColor, AppAccentPreference.dynamic);
     expect(migrated.fontScale, AppFontScalePreference.system);
+  });
+
+  test('setup prompts postpone for seven days and dismiss permanently', () {
+    final now = DateTime.utc(2026, 8, 21);
+
+    expect(setupPromptDue(0, now), isTrue);
+    expect(setupPromptDue(postponeSetupPrompt(now), now), isFalse);
+    expect(
+      setupPromptDue(
+        postponeSetupPrompt(now),
+        now.add(const Duration(days: 7)),
+      ),
+      isTrue,
+    );
+    expect(setupPromptDue(dismissedSetupPrompt, now), isFalse);
   });
 
   test(

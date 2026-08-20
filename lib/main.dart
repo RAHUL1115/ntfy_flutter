@@ -41,6 +41,7 @@ class NtfyApp extends StatefulWidget {
     this.backgroundListening,
     this.notifications,
     this.settings,
+    this.backgroundSetupPlatform = const AndroidSettingsPlatform(),
     SubscriptionAccessChecker? subscriptionAccessChecker,
     super.key,
   }) : publisher = publisher ?? HttpNtfyPublisher(profiles: settings),
@@ -55,6 +56,7 @@ class NtfyApp extends StatefulWidget {
   final BackgroundListeningSession? backgroundListening;
   final MessageNotificationSession? notifications;
   final AppSettingsRepository? settings;
+  final BackgroundSetupPlatform backgroundSetupPlatform;
   final SubscriptionAccessChecker? subscriptionAccessChecker;
 
   @override
@@ -200,6 +202,7 @@ class _NtfyAppState extends State<NtfyApp> {
         notifications: _notifications,
         routeObserver: _routeObserver,
         settings: widget.settings,
+        backgroundSetupPlatform: widget.backgroundSetupPlatform,
         subscriptionAccessChecker: widget.subscriptionAccessChecker,
         appSettings: _appSettings,
         onSettingsChanged: _loadSettings,
@@ -222,6 +225,7 @@ class SubscriptionsScreen extends StatefulWidget {
     required this.notifications,
     required this.routeObserver,
     this.settings,
+    this.backgroundSetupPlatform = const AndroidSettingsPlatform(),
     this.subscriptionAccessChecker,
     this.appSettings = const AppSettings(),
     this.onSettingsChanged,
@@ -235,6 +239,7 @@ class SubscriptionsScreen extends StatefulWidget {
   final MessageNotificationSession notifications;
   final RouteObserver<PageRoute<dynamic>> routeObserver;
   final AppSettingsRepository? settings;
+  final BackgroundSetupPlatform backgroundSetupPlatform;
   final SubscriptionAccessChecker? subscriptionAccessChecker;
   final AppSettings appSettings;
   final Future<void> Function()? onSettingsChanged;
@@ -254,6 +259,9 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   var _loadingConnectionStatus = false;
   NotificationPolicy? _globalPolicy;
   List<BackgroundServerConnectionStatus> _connections = const [];
+  AppSettings? _setupSettings;
+  BackgroundSetupCapabilities? _setupCapabilities;
+  bool _backgroundEnabled = false;
   final Set<int> _pendingSubscriptionRemovals = {};
 
   @override
@@ -265,6 +273,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     );
     unawaited(_startNotifications());
     _loadSubscriptions();
+    unawaited(_refreshSetupPrompts());
     _loadGlobalPolicy();
     // ponytail: SQLite polling bridges UI/background isolates; replace with
     // database invalidation only if topic-list scale makes this measurable.
@@ -391,6 +400,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
       ),
     );
     await _loadGlobalPolicy();
+    await _refreshSetupPrompts();
   }
 
   @override
@@ -398,6 +408,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     if (state == AppLifecycleState.resumed) {
       _startRefreshTimer();
       unawaited(_loadSubscriptions());
+      unawaited(_refreshSetupPrompts(refreshListener: true));
     } else {
       _stopRefreshTimer();
     }
@@ -445,6 +456,74 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
       _loadingSubscriptions = false;
     }
     unawaited(_loadConnectionStatus());
+  }
+
+  Future<void> _refreshSetupPrompts({bool refreshListener = false}) async {
+    final repository = widget.settings;
+    if (repository == null) return;
+    try {
+      final settings = await repository.loadSettings();
+      final background = await widget.backgroundListening.load();
+      final capabilities = await widget.backgroundSetupPlatform.capabilities();
+      if (refreshListener &&
+          settings.protocol == ConnectionProtocol.websocket) {
+        await widget.backgroundListening.execute(
+          const RefreshBackgroundListener(),
+        );
+      }
+      if (mounted) {
+        setState(() {
+          _setupSettings = settings;
+          _backgroundEnabled = background.enabled;
+          _setupCapabilities = capabilities;
+        });
+      }
+    } catch (_) {
+      // Setup guidance is optional and must never block normal app use.
+    }
+  }
+
+  Future<void> _saveSetupSettings(AppSettings settings) async {
+    await widget.settings!.saveSettings(settings);
+    await widget.onSettingsChanged?.call();
+    await _refreshSetupPrompts();
+  }
+
+  Future<void> _changePrompt(_SetupPromptKind kind, int value) async {
+    final settings = _setupSettings;
+    if (settings == null) return;
+    await _saveSetupSettings(switch (kind) {
+      _SetupPromptKind.battery => settings.copyWith(
+        batteryPromptAfterEpochSeconds: value,
+      ),
+      _SetupPromptKind.websocket => settings.copyWith(
+        websocketPromptAfterEpochSeconds: value,
+      ),
+      _SetupPromptKind.exactAlarm => settings.copyWith(
+        exactAlarmPromptAfterEpochSeconds: value,
+      ),
+    });
+  }
+
+  Future<void> _enableWebSockets() async {
+    final settings = _setupSettings;
+    if (settings == null) return;
+    await _saveSetupSettings(
+      settings.copyWith(protocol: ConnectionProtocol.websocket),
+    );
+    await widget.backgroundListening.execute(const RefreshBackgroundListener());
+  }
+
+  Future<void> _openSetupSettings(Future<void> Function() open) async {
+    try {
+      await open();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: LText('Could not open Android settings.')),
+        );
+      }
+    }
   }
 
   Future<void> _loadConnectionStatus() async {
@@ -800,6 +879,95 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   ];
 
   Widget _buildBody() {
+    final prompts = _setupPromptWidgets();
+    final topics = _buildTopicsBody();
+    if (prompts.isEmpty) return topics;
+    return Column(
+      children: [
+        ...prompts,
+        Expanded(child: topics),
+      ],
+    );
+  }
+
+  List<Widget> _setupPromptWidgets() {
+    final settings = _setupSettings;
+    final capabilities = _setupCapabilities;
+    if (settings == null || capabilities == null) return const [];
+    final now = DateTime.now();
+    final subscriptions = _subscriptions ?? const <Subscription>[];
+    final hasSelfHosted = subscriptions.any(
+      (subscription) =>
+          Uri.parse(subscription.url).host.toLowerCase() != 'ntfy.sh',
+    );
+    final prompts = <Widget>[];
+    if (_backgroundEnabled &&
+        capabilities.batteryOptimized &&
+        setupPromptDue(settings.batteryPromptAfterEpochSeconds, now)) {
+      prompts.add(
+        _SetupPromptCard(
+          key: const Key('battery-setup-prompt'),
+          text:
+              'Android is limiting background operation, so notifications may '
+              'be delayed or missed. Allow background use in your device settings.',
+          primaryLabel: 'Fix now',
+          onPrimary: () => _openSetupSettings(
+            widget.backgroundSetupPlatform.openBatterySettings,
+          ),
+          onLater: () =>
+              _changePrompt(_SetupPromptKind.battery, postponeSetupPrompt(now)),
+          onDismiss: () =>
+              _changePrompt(_SetupPromptKind.battery, dismissedSetupPrompt),
+        ),
+      );
+    }
+    if (hasSelfHosted &&
+        settings.protocol == ConnectionProtocol.http &&
+        setupPromptDue(settings.websocketPromptAfterEpochSeconds, now)) {
+      prompts.add(
+        _SetupPromptCard(
+          key: const Key('websocket-setup-prompt'),
+          text:
+              'WebSockets may improve background connectivity and battery use '
+              'for self-hosted servers. Your reverse proxy may need WebSocket configuration.',
+          primaryLabel: 'Enable now',
+          onPrimary: _enableWebSockets,
+          onLater: () => _changePrompt(
+            _SetupPromptKind.websocket,
+            postponeSetupPrompt(now),
+          ),
+          onDismiss: () =>
+              _changePrompt(_SetupPromptKind.websocket, dismissedSetupPrompt),
+        ),
+      );
+    }
+    if (_backgroundEnabled &&
+        settings.protocol == ConnectionProtocol.websocket &&
+        capabilities.exactAlarmAccessRequired &&
+        setupPromptDue(settings.exactAlarmPromptAfterEpochSeconds, now)) {
+      prompts.add(
+        _SetupPromptCard(
+          key: const Key('exact-alarm-setup-prompt'),
+          text:
+              'Allow Alarms & reminders so WebSocket reconnect retries can run '
+              'at the requested time after a background disconnect.',
+          primaryLabel: 'Grant now',
+          onPrimary: () => _openSetupSettings(
+            widget.backgroundSetupPlatform.openExactAlarmSettings,
+          ),
+          onLater: () => _changePrompt(
+            _SetupPromptKind.exactAlarm,
+            postponeSetupPrompt(now),
+          ),
+          onDismiss: () =>
+              _changePrompt(_SetupPromptKind.exactAlarm, dismissedSetupPrompt),
+        ),
+      );
+    }
+    return prompts;
+  }
+
+  Widget _buildTopicsBody() {
     final subscriptions = _subscriptions;
     if (subscriptions == null) {
       return const Center(child: CircularProgressIndicator());
@@ -933,6 +1101,49 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
       ),
     );
   }
+}
+
+enum _SetupPromptKind { battery, websocket, exactAlarm }
+
+class _SetupPromptCard extends StatelessWidget {
+  const _SetupPromptCard({
+    required this.text,
+    required this.primaryLabel,
+    required this.onPrimary,
+    required this.onLater,
+    required this.onDismiss,
+    super.key,
+  });
+
+  final String text;
+  final String primaryLabel;
+  final VoidCallback onPrimary;
+  final VoidCallback onLater;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Theme.of(context).colorScheme.surfaceContainerHigh,
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          LText(text),
+          Align(
+            alignment: Alignment.centerRight,
+            child: Wrap(
+              children: [
+                TextButton(onPressed: onDismiss, child: const LText('Dismiss')),
+                TextButton(onPressed: onLater, child: const LText('Ask later')),
+                TextButton(onPressed: onPrimary, child: LText(primaryLabel)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _UnreadBadge extends StatelessWidget {

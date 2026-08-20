@@ -1,12 +1,14 @@
 package com.rahul1115.ntfy_flutter
 
 import android.Manifest
+import android.app.AlarmManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -80,6 +82,28 @@ class MainActivity : FlutterActivity() {
                     setUnifiedPushEnabled(enabled)
                     result.success(null)
                 }
+                "backgroundCapabilities" -> {
+                    val power = getSystemService(PowerManager::class.java)
+                    val alarms = getSystemService(AlarmManager::class.java)
+                    result.success(
+                        mapOf(
+                            "batteryOptimized" to
+                                !power.isIgnoringBatteryOptimizations(packageName),
+                            "exactAlarmAccessRequired" to (
+                                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                    !alarms.canScheduleExactAlarms()
+                            ),
+                        ),
+                    )
+                }
+                "openBatterySettings" -> {
+                    openBatterySettings()
+                    result.success(null)
+                }
+                "openExactAlarmSettings" -> {
+                    openExactAlarmSettings()
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }
@@ -147,6 +171,26 @@ class MainActivity : FlutterActivity() {
             )
         }
         startActivity(intent)
+    }
+
+    private fun openBatterySettings() {
+        val app = Uri.parse("package:$packageName")
+        val intents = listOf(
+            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, app),
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS),
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, app),
+        )
+        intents.firstOrNull { it.resolveActivity(packageManager) != null }
+            ?.let(::startActivity)
+    }
+
+    private fun openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        val intent = Intent(
+            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+            Uri.parse("package:$packageName"),
+        )
+        if (intent.resolveActivity(packageManager) != null) startActivity(intent)
     }
 
     private fun setUnifiedPushEnabled(enabled: Boolean) {

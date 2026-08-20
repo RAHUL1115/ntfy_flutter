@@ -928,6 +928,71 @@ void main() {
     await dragInSteps(300);
   });
 
+  testWidgets(
+    'background setup prompts persist actions and refresh listeners',
+    (tester) async {
+      await store.add(url: 'https://example.com/alerts');
+      store.backgroundListening = true;
+      final preferences = _MemoryPreferences();
+      final settings = AppSettingsStore(
+        preferences: preferences,
+        secrets: _MemorySecrets(),
+      );
+      final host = _RecordingBackgroundHost();
+      final platform = _RecordingBackgroundSetupPlatform();
+      await tester.pumpWidget(
+        NtfyApp(
+          store: store,
+          settings: settings,
+          backgroundListening: BackgroundListeningSession(store, host),
+          backgroundSetupPlatform: platform,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final battery = find.byKey(const Key('battery-setup-prompt'));
+      final websocket = find.byKey(const Key('websocket-setup-prompt'));
+      expect(battery, findsOneWidget);
+      expect(websocket, findsOneWidget);
+      await tester.tap(
+        find.descendant(of: battery, matching: find.text('Fix now')),
+      );
+      expect(platform.batterySettingsOpens, 1);
+      await tester.tap(
+        find.descendant(of: battery, matching: find.text('Ask later')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        (await settings.loadSettings()).batteryPromptAfterEpochSeconds,
+        greaterThan(DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      );
+
+      await tester.tap(
+        find.descendant(of: websocket, matching: find.text('Enable now')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        (await settings.loadSettings()).protocol,
+        ConnectionProtocol.websocket,
+      );
+      expect(host.starts, greaterThanOrEqualTo(2));
+      final exactAlarm = find.byKey(const Key('exact-alarm-setup-prompt'));
+      expect(exactAlarm, findsOneWidget);
+      await tester.tap(
+        find.descendant(of: exactAlarm, matching: find.text('Grant now')),
+      );
+      expect(platform.exactAlarmSettingsOpens, 1);
+      await tester.tap(
+        find.descendant(of: exactAlarm, matching: find.text('Dismiss')),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        (await settings.loadSettings()).exactAlarmPromptAfterEpochSeconds,
+        dismissedSetupPrompt,
+      );
+    },
+  );
+
   testWidgets('default server dialog opens wide', (tester) async {
     final settings = AppSettingsStore(
       preferences: _MemoryPreferences(),
@@ -1398,6 +1463,24 @@ class _RecordingBackgroundHost implements BackgroundListeningHost {
 
   @override
   Future<BackgroundListeningHostStatus> status() async => statusValue;
+}
+
+class _RecordingBackgroundSetupPlatform implements BackgroundSetupPlatform {
+  int batterySettingsOpens = 0;
+  int exactAlarmSettingsOpens = 0;
+
+  @override
+  Future<BackgroundSetupCapabilities> capabilities() async =>
+      const BackgroundSetupCapabilities(
+        batteryOptimized: true,
+        exactAlarmAccessRequired: true,
+      );
+
+  @override
+  Future<void> openBatterySettings() async => batterySettingsOpens++;
+
+  @override
+  Future<void> openExactAlarmSettings() async => exactAlarmSettingsOpens++;
 }
 
 class _MemoryPreferences implements PreferencesBackend {

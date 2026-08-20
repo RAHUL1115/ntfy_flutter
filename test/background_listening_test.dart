@@ -500,6 +500,32 @@ void main() {
   });
 
   test(
+    'reconnect scheduling keeps working with exact alarms allowed or denied',
+    () async {
+      for (final allowed in [true, false]) {
+        final repository = _MemoryRepository()..enabled = true;
+        await repository.add(url: 'https://ntfy.sh/alerts');
+        final scheduler = _RecordingReconnectScheduler(allowed);
+        late _HoldingClient client;
+        final runtime = BackgroundListenerRuntime(
+          repository,
+          clientFactory: (_) => client = _HoldingClient(),
+          reconnectScheduler: scheduler,
+          retryDelays: const [Duration(hours: 1)],
+        );
+
+        expect(await runtime.start(), isTrue);
+        await client.connected.future;
+        await client.abort();
+        await _until(() async => scheduler.scheduled == 1);
+        expect(scheduler.results, [allowed]);
+        await runtime.stop();
+        expect(scheduler.cancelled, greaterThanOrEqualTo(1));
+      }
+    },
+  );
+
+  test(
     'connection alerts wait for the setting and cancel on recovery',
     () async {
       final platform = _RecordingConnectionAlertPlatform();
@@ -545,6 +571,25 @@ class _RecordingConnectionAlertPlatform implements ConnectionAlertPlatform {
 
   @override
   Future<void> clear() async => clears++;
+}
+
+class _RecordingReconnectScheduler implements ReconnectScheduler {
+  _RecordingReconnectScheduler(this.allowed);
+
+  final bool allowed;
+  int scheduled = 0;
+  int cancelled = 0;
+  final results = <bool>[];
+
+  @override
+  Future<bool> schedule(Object listener, DateTime when) async {
+    scheduled++;
+    results.add(allowed);
+    return allowed;
+  }
+
+  @override
+  Future<void> cancel(Object listener) async => cancelled++;
 }
 
 class _MemoryPreferences implements PreferencesBackend {

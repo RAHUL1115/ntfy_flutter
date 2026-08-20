@@ -302,6 +302,50 @@ const _backgroundRetryDelays = <Duration>[
   Duration(seconds: 30),
 ];
 
+abstract interface class ReconnectScheduler {
+  Future<bool> schedule(Object listener, DateTime when);
+  Future<void> cancel(Object listener);
+}
+
+class AndroidReconnectScheduler implements ReconnectScheduler {
+  AndroidReconnectScheduler(this._channel);
+
+  final MethodChannel _channel;
+  final Map<Object, int> _deadlines = {};
+
+  @override
+  Future<bool> schedule(Object listener, DateTime when) {
+    _deadlines[listener] = when.millisecondsSinceEpoch;
+    return _apply();
+  }
+
+  @override
+  Future<void> cancel(Object listener) async {
+    _deadlines.remove(listener);
+    await _apply();
+  }
+
+  Future<bool> _apply() async {
+    try {
+      if (_deadlines.isEmpty) {
+        await _channel.invokeMethod('cancelReconnect');
+        return true;
+      }
+      return await _channel.invokeMethod<bool>(
+            'scheduleReconnect',
+            _deadlines.values.reduce(
+              (left, right) => left < right ? left : right,
+            ),
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+}
+
 class BackgroundListenerRuntime {
   BackgroundListenerRuntime(
     this._repository, {
@@ -311,6 +355,7 @@ class BackgroundListenerRuntime {
     this.connectionAlerts,
     this.connectionStatusChanged,
     this.unifiedPushMessage,
+    this.reconnectScheduler,
     RetentionSession? retention,
     List<Duration>? retryDelays,
   }) : assert(retryDelays == null || retryDelays.isNotEmpty),
@@ -331,6 +376,7 @@ class BackgroundListenerRuntime {
     List<int> message,
   )?
   unifiedPushMessage;
+  final ReconnectScheduler? reconnectScheduler;
   final RetentionSession _retention;
   final List<Duration> _retryDelays;
   final _listeners = <(String, String?), _BackgroundServerListener>{};
@@ -407,6 +453,7 @@ class BackgroundListenerRuntime {
         connectionAlerts: connectionAlerts,
         connectionStatusChanged: connectionStatusChanged,
         unifiedPushMessage: unifiedPushMessage,
+        reconnectScheduler: reconnectScheduler,
         retryDelays: _retryDelays,
       );
       _listeners[entry.key] = listener;
@@ -447,6 +494,7 @@ class _BackgroundServerListener {
     required this.connectionAlerts,
     required this.connectionStatusChanged,
     required this.unifiedPushMessage,
+    required this.reconnectScheduler,
     required this.retryDelays,
   }) : subscriptions = List.unmodifiable(subscriptions),
        _subscriptionIds = subscriptions.map((item) => item.id).toSet(),
@@ -470,6 +518,7 @@ class _BackgroundServerListener {
     List<int> message,
   )?
   unifiedPushMessage;
+  final ReconnectScheduler? reconnectScheduler;
   final List<Duration> retryDelays;
   final Set<int> _subscriptionIds;
   final Map<String, Subscription> _byTopic;
@@ -574,11 +623,13 @@ class _BackgroundServerListener {
     if (_retryIndex < retryDelays.length - 1) _retryIndex++;
     final completer = Completer<void>();
     _retryCompleter = completer;
+    await reconnectScheduler?.schedule(this, DateTime.now().add(delay));
     _retryTimer = Timer(delay, () {
       _retryTimer = null;
       if (!completer.isCompleted) completer.complete();
     });
     await completer.future;
+    await reconnectScheduler?.cancel(this);
     if (identical(_retryCompleter, completer)) _retryCompleter = null;
   }
 
@@ -590,6 +641,7 @@ class _BackgroundServerListener {
     final completer = _retryCompleter;
     if (completer != null && !completer.isCompleted) completer.complete();
     _retryCompleter = null;
+    await reconnectScheduler?.cancel(this);
     try {
       await _connection?.close();
     } catch (_) {
@@ -674,6 +726,7 @@ Future<void> backgroundMain() async {
         'unifiedPushMessage',
         {'application': application, 'token': token, 'message': message},
       ),
+      reconnectScheduler: AndroidReconnectScheduler(channel),
     );
     channel.setMethodCallHandler((call) async {
       switch (call.method) {

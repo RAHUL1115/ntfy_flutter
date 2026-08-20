@@ -69,6 +69,7 @@ class SettingsScreen extends StatelessWidget {
             if (settings != null)
               _AppSettingsPanel(
                 repository: settings!,
+                backgroundListening: backgroundListening,
                 database: database,
                 onChanged: onSettingsChanged,
                 onCheckForUpdates: onCheckForUpdates,
@@ -881,6 +882,7 @@ class _BackgroundListeningSettingsState
 class _AppSettingsPanel extends StatefulWidget {
   const _AppSettingsPanel({
     required this.repository,
+    required this.backgroundListening,
     this.database,
     this.onChanged,
     this.onCheckForUpdates,
@@ -889,6 +891,7 @@ class _AppSettingsPanel extends StatefulWidget {
   });
 
   final AppSettingsRepository repository;
+  final BackgroundListeningSession backgroundListening;
   final SubscriptionStore? database;
   final Future<void> Function()? onChanged;
   final VoidCallback? onCheckForUpdates;
@@ -1331,8 +1334,25 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 ], selected: settings.protocol);
                 if (value != null) {
                   await _save(settings.copyWith(protocol: value));
+                  await widget.backgroundListening.execute(
+                    const RefreshBackgroundListener(),
+                  );
                 }
               },
+            ),
+            ListTile(
+              key: const Key('background-setup-help'),
+              title: const LText('Background delivery setup'),
+              subtitle: const LText(
+                'Show battery, WebSocket, and reconnect guidance again.',
+              ),
+              onTap: () => _save(
+                settings.copyWith(
+                  batteryPromptAfterEpochSeconds: 0,
+                  websocketPromptAfterEpochSeconds: 0,
+                  exactAlarmPromptAfterEpochSeconds: 0,
+                ),
+              ),
             ),
             ListTile(
               key: const Key('custom-headers-setting'),

@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.AlarmManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -121,6 +122,16 @@ class BackgroundListenerService : Service() {
                 }
                 "unifiedPushMessage" -> {
                     deliverUnifiedPushMessage(call.arguments)
+                    result.success(null)
+                }
+                "scheduleReconnect" -> {
+                    val epochMilliseconds = (call.arguments as? Number)?.toLong()
+                    result.success(
+                        epochMilliseconds != null && scheduleReconnect(epochMilliseconds),
+                    )
+                }
+                "cancelReconnect" -> {
+                    cancelReconnect()
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -335,6 +346,31 @@ class BackgroundListenerService : Service() {
         dispatchPending()
     }
 
+    private fun reconnectIntent(): PendingIntent = PendingIntent.getService(
+        this,
+        RECONNECT_REQUEST_CODE,
+        Intent(this, BackgroundListenerService::class.java).setAction(ACTION_RECONNECT),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun scheduleReconnect(epochMilliseconds: Long): Boolean {
+        val alarms = getSystemService(AlarmManager::class.java)
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !alarms.canScheduleExactAlarms()
+        ) return false
+        alarms.setExactAndAllowWhileIdle(
+            AlarmManager.RTC_WAKEUP,
+            epochMilliseconds,
+            reconnectIntent(),
+        )
+        return true
+    }
+
+    private fun cancelReconnect() {
+        getSystemService(AlarmManager::class.java).cancel(reconnectIntent())
+    }
+
     private fun requestStop(onStopped: () -> Unit = {}) {
         stoppedCallbacks.add(Completion(onStopped) { onStopped() })
         stopPending = true
@@ -405,6 +441,7 @@ class BackgroundListenerService : Service() {
         private const val EXTRA_UP_TOKEN = "token"
         private const val EXTRA_UP_MESSAGE = "message"
         private const val NOTIFICATION_ID = 8
+        private const val RECONNECT_REQUEST_CODE = 9
         private const val INITIALIZATION_TIMEOUT_MS = 10_000L
         private const val REFRESH_TIMEOUT_MS = 10_000L
         private const val STOP_TIMEOUT_MS = 5_000L

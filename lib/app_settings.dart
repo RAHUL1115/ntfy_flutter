@@ -73,6 +73,9 @@ class AppSettings {
     this.newMessagesAtBottom = false,
     this.connectionAlertSeconds = 0,
     this.protocol = ConnectionProtocol.http,
+    this.batteryPromptAfterEpochSeconds = 0,
+    this.websocketPromptAfterEpochSeconds = 0,
+    this.exactAlarmPromptAfterEpochSeconds = 0,
     this.broadcastsEnabled = true,
     this.unifiedPushEnabled = false,
     this.recordLogs = false,
@@ -91,6 +94,9 @@ class AppSettings {
   final bool newMessagesAtBottom;
   final int connectionAlertSeconds;
   final ConnectionProtocol protocol;
+  final int batteryPromptAfterEpochSeconds;
+  final int websocketPromptAfterEpochSeconds;
+  final int exactAlarmPromptAfterEpochSeconds;
   final bool broadcastsEnabled;
   final bool unifiedPushEnabled;
   final bool recordLogs;
@@ -107,6 +113,9 @@ class AppSettings {
     bool? newMessagesAtBottom,
     int? connectionAlertSeconds,
     ConnectionProtocol? protocol,
+    int? batteryPromptAfterEpochSeconds,
+    int? websocketPromptAfterEpochSeconds,
+    int? exactAlarmPromptAfterEpochSeconds,
     bool? broadcastsEnabled,
     bool? unifiedPushEnabled,
     bool? recordLogs,
@@ -126,6 +135,14 @@ class AppSettings {
     connectionAlertSeconds:
         connectionAlertSeconds ?? this.connectionAlertSeconds,
     protocol: protocol ?? this.protocol,
+    batteryPromptAfterEpochSeconds:
+        batteryPromptAfterEpochSeconds ?? this.batteryPromptAfterEpochSeconds,
+    websocketPromptAfterEpochSeconds:
+        websocketPromptAfterEpochSeconds ??
+        this.websocketPromptAfterEpochSeconds,
+    exactAlarmPromptAfterEpochSeconds:
+        exactAlarmPromptAfterEpochSeconds ??
+        this.exactAlarmPromptAfterEpochSeconds,
     broadcastsEnabled: broadcastsEnabled ?? this.broadcastsEnabled,
     unifiedPushEnabled: unifiedPushEnabled ?? this.unifiedPushEnabled,
     recordLogs: recordLogs ?? this.recordLogs,
@@ -143,6 +160,9 @@ class AppSettings {
     'newMessagesAtBottom': newMessagesAtBottom,
     'connectionAlertSeconds': connectionAlertSeconds,
     'protocol': protocol.name,
+    'batteryPromptAfterEpochSeconds': batteryPromptAfterEpochSeconds,
+    'websocketPromptAfterEpochSeconds': websocketPromptAfterEpochSeconds,
+    'exactAlarmPromptAfterEpochSeconds': exactAlarmPromptAfterEpochSeconds,
     'broadcastsEnabled': broadcastsEnabled,
     'unifiedPushEnabled': unifiedPushEnabled,
     'recordLogs': recordLogs,
@@ -194,6 +214,12 @@ class AppSettings {
         'protocol',
         ConnectionProtocol.http,
       ),
+      batteryPromptAfterEpochSeconds:
+          value['batteryPromptAfterEpochSeconds'] as int? ?? 0,
+      websocketPromptAfterEpochSeconds:
+          value['websocketPromptAfterEpochSeconds'] as int? ?? 0,
+      exactAlarmPromptAfterEpochSeconds:
+          value['exactAlarmPromptAfterEpochSeconds'] as int? ?? 0,
       broadcastsEnabled: value['broadcastsEnabled'] as bool? ?? true,
       unifiedPushEnabled: value['unifiedPushEnabled'] as bool? ?? false,
       recordLogs: value['recordLogs'] as bool? ?? false,
@@ -760,7 +786,32 @@ class FlutterSecretBackend implements SecretBackend {
   Future<void> delete(String key) => storage.delete(key: key);
 }
 
-class AndroidSettingsPlatform {
+const dismissedSetupPrompt = -1;
+
+int postponeSetupPrompt(DateTime now) =>
+    now.add(const Duration(days: 7)).millisecondsSinceEpoch ~/ 1000;
+
+bool setupPromptDue(int afterEpochSeconds, DateTime now) =>
+    afterEpochSeconds >= 0 &&
+    afterEpochSeconds <= now.millisecondsSinceEpoch ~/ 1000;
+
+class BackgroundSetupCapabilities {
+  const BackgroundSetupCapabilities({
+    required this.batteryOptimized,
+    required this.exactAlarmAccessRequired,
+  });
+
+  final bool batteryOptimized;
+  final bool exactAlarmAccessRequired;
+}
+
+abstract interface class BackgroundSetupPlatform {
+  Future<BackgroundSetupCapabilities> capabilities();
+  Future<void> openBatterySettings();
+  Future<void> openExactAlarmSettings();
+}
+
+class AndroidSettingsPlatform implements BackgroundSetupPlatform {
   const AndroidSettingsPlatform();
 
   static const _channel = MethodChannel(
@@ -769,6 +820,32 @@ class AndroidSettingsPlatform {
 
   Future<void> setUnifiedPushEnabled(bool enabled) =>
       _channel.invokeMethod('setUnifiedPushEnabled', enabled);
+
+  @override
+  Future<BackgroundSetupCapabilities> capabilities() async {
+    try {
+      final value = await _channel.invokeMapMethod<String, Object?>(
+        'backgroundCapabilities',
+      );
+      return BackgroundSetupCapabilities(
+        batteryOptimized: value?['batteryOptimized'] == true,
+        exactAlarmAccessRequired: value?['exactAlarmAccessRequired'] == true,
+      );
+    } on MissingPluginException {
+      return const BackgroundSetupCapabilities(
+        batteryOptimized: false,
+        exactAlarmAccessRequired: false,
+      );
+    }
+  }
+
+  @override
+  Future<void> openBatterySettings() =>
+      _channel.invokeMethod('openBatterySettings');
+
+  @override
+  Future<void> openExactAlarmSettings() =>
+      _channel.invokeMethod('openExactAlarmSettings');
 }
 
 class ManagedCertificateFiles {
