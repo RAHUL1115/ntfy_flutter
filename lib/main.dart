@@ -232,6 +232,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
   var _loadingConnectionStatus = false;
   NotificationPolicy? _globalPolicy;
   List<BackgroundServerConnectionStatus> _connections = const [];
+  final Set<int> _pendingSubscriptionRemovals = {};
 
   @override
   void initState() {
@@ -354,30 +355,21 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               ? widget.store as SubscriptionStore
               : null,
           onSettingsChanged: widget.onSettingsChanged,
+          onCheckForUpdates: () => _openExternal(
+            Uri.parse(
+              'https://github.com/RAHUL1115/ntfy_flutter/releases/latest',
+            ),
+          ),
+          onReportBug: () => _openExternal(
+            Uri.parse('https://github.com/RAHUL1115/ntfy_flutter/issues'),
+          ),
+          onDocumentation: () => _openExternal(Uri.parse('https://ntfy.sh/docs')),
         ),
       ),
     );
     await _loadGlobalPolicy();
   }
 
-  Future<void> _selectHomeAction(_HomeAction action) async {
-    switch (action) {
-      case _HomeAction.settings:
-        await _openSettings();
-      case _HomeAction.docs:
-        await _openExternal(Uri.parse('https://ntfy.sh/docs'));
-      case _HomeAction.update:
-        await _openExternal(
-          Uri.parse(
-            'https://github.com/RAHUL1115/ntfy_flutter/releases/latest',
-          ),
-        );
-      case _HomeAction.reportBug:
-        await _openExternal(
-          Uri.parse('https://github.com/RAHUL1115/ntfy_flutter/issues'),
-        );
-    }
-  }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -421,7 +413,9 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     if (_loadingSubscriptions) return;
     _loadingSubscriptions = true;
     try {
-      final subscriptions = await widget.store.all();
+      final subscriptions = (await widget.store.all())
+          .where((item) => !_pendingSubscriptionRemovals.contains(item.id))
+          .toList(growable: false);
       if (mounted && !listEquals(_subscriptions, subscriptions)) {
         setState(() => _subscriptions = subscriptions);
       }
@@ -555,43 +549,36 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     super.dispose();
   }
 
-  Future<bool> _confirmRemove(Subscription subscription) async {
-    final name = subscription.displayName ?? subscription.url;
-    return await showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: const LText('Unsubscribe from topic?'),
-            content: LText(
-              'Unsubscribe from $name and delete all locally stored notifications?',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const LText('Cancel'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                style: TextButton.styleFrom(
-                  foregroundColor: Theme.of(context).colorScheme.error,
-                ),
-                child: const LText('Unsubscribe'),
-              ),
-            ],
-          ),
-        ) ??
-        false;
-  }
-
   Future<void> _removeSubscription(Subscription subscription) async {
+    if (_pendingSubscriptionRemovals.contains(subscription.id)) return;
     setState(() {
+      _pendingSubscriptionRemovals.add(subscription.id);
       _subscriptions = _subscriptions
           ?.where((item) => item.id != subscription.id)
           .toList();
     });
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    final controller = messenger.showSnackBar(
+      SnackBar(
+        content: const LText('Subscription deleted'),
+        action: SnackBarAction(label: tr(context, 'Undo'), onPressed: () {}),
+      ),
+    );
+    final reason = await controller.closed;
+    if (reason == SnackBarClosedReason.action) {
+      _pendingSubscriptionRemovals.remove(subscription.id);
+      final subscriptions = (await widget.store.all())
+          .where((item) => !_pendingSubscriptionRemovals.contains(item.id))
+          .toList(growable: false);
+      if (mounted) setState(() => _subscriptions = subscriptions);
+      return;
+    }
     try {
       await widget.store.remove(subscription.id);
       await _refreshBackgroundListener();
     } catch (_) {
+      _pendingSubscriptionRemovals.remove(subscription.id);
       await _loadSubscriptions();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -600,7 +587,9 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
           ),
         );
       }
+      return;
     }
+    _pendingSubscriptionRemovals.remove(subscription.id);
   }
 
   Future<void> _refreshBackgroundListener() async {
@@ -778,53 +767,11 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
           ],
         ),
       ),
-    PopupMenuButton<_HomeAction>(
-      icon: const Icon(Icons.more_vert),
-      position: PopupMenuPosition.under,
-      offset: const Offset(-8, -4),
-      constraints: const BoxConstraints.tightFor(width: 200),
-      onSelected: (action) => unawaited(_selectHomeAction(action)),
-      itemBuilder: (_) => const [
-        PopupMenuItem(
-          value: _HomeAction.settings,
-          height: 52,
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: LText('Settings'),
-        ),
-        PopupMenuDivider(height: 1),
-        PopupMenuItem(
-          value: _HomeAction.update,
-          height: 52,
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              Expanded(
-                child: LText(
-                  'Update app',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              SizedBox(width: 8),
-              Icon(Icons.system_update_alt, size: 16, color: Color(0xff004f45)),
-            ],
-          ),
-        ),
-        PopupMenuDivider(height: 1),
-        PopupMenuItem(
-          value: _HomeAction.reportBug,
-          height: 52,
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: LText('Report a bug'),
-        ),
-        PopupMenuDivider(height: 1),
-        PopupMenuItem(
-          value: _HomeAction.docs,
-          height: 52,
-          padding: EdgeInsets.symmetric(horizontal: 16),
-          child: LText('Documentation'),
-        ),
-      ],
+    IconButton(
+      key: const Key('home-settings-action'),
+      tooltip: tr(context, 'Settings'),
+      onPressed: () => unawaited(_openSettings()),
+      icon: const Icon(Icons.settings_outlined),
     ),
   ];
 
@@ -849,8 +796,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               final subscription = subscriptions[index];
               return DesignSwipeToDelete(
                 dismissKey: ValueKey('subscription-${subscription.id}'),
-                confirmDismiss: () => _confirmRemove(subscription),
-                onDismissed: () => _removeSubscription(subscription),
+                onDelete: () => _removeSubscription(subscription),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     border: Border(
@@ -965,8 +911,6 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     );
   }
 }
-
-enum _HomeAction { settings, docs, update, reportBug }
 
 class _UnreadBadge extends StatelessWidget {
   const _UnreadBadge(this.count);

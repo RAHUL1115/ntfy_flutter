@@ -565,7 +565,7 @@ void main() {
     expect(find.text('Newest body'), findsOneWidget);
   });
 
-  testWidgets('swipe deletes one notification locally and supports undo', (
+  testWidgets('swipe reveals accent delete action and supports undo', (
     tester,
   ) async {
     final repository = _WidgetRepository(messageCount: 3);
@@ -585,24 +585,38 @@ void main() {
     await tester.tap(find.text('Production alerts'));
     await tester.pumpAndSettle();
 
-    await tester.fling(
-      find.byKey(const ValueKey('message-id-1')),
-      const Offset(-300, 0),
-      3000,
+    final row = find.byKey(const ValueKey('dismiss-message-2'));
+    final action = find.descendant(
+      of: row,
+      matching: find.byKey(const Key('swipe-delete-action')),
     );
+    expect(
+      tester.widget<InkWell>(
+        find.descendant(of: action, matching: find.byType(InkWell)),
+      ).onTap,
+      isNull,
+    );
+
+    await tester.drag(row, const Offset(-180, 0));
     await tester.pumpAndSettle();
+
     expect(find.text('Body 1'), findsOneWidget);
-    expect(find.text('Delete notification?'), findsNothing);
-
-    await tester.drag(
-      find.byKey(const ValueKey('message-id-1')),
-      const Offset(-700, 0),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Delete notification?'), findsOneWidget);
     expect(repository.messages, hasLength(3));
+    expect(find.text('Delete notification?'), findsNothing);
+    expect(action, findsOneWidget);
+    expect(
+      tester.widget<InkWell>(
+        find.descendant(of: action, matching: find.byType(InkWell)),
+      ).onTap,
+      isNotNull,
+    );
+    final actionMaterial = tester.widget<Material>(action);
+    expect(
+      actionMaterial.color,
+      Theme.of(tester.element(row)).colorScheme.primary,
+    );
 
-    await tester.tap(find.widgetWithText(TextButton, 'Delete'));
+    await tester.tap(action);
     await tester.pumpAndSettle();
 
     expect(find.text('Body 1'), findsNothing);

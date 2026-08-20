@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 
+import 'l10n.dart';
+
 /// Design tokens for the "functional minimalist" mobile design in
 /// `docs/new_design`: flat surfaces, hairline outlines, square corners and a
 /// single deep-teal accent. Elevation is expressed as an offset hard shadow
@@ -370,38 +372,16 @@ final lightTheme = designTheme(brightness: Brightness.light);
 
 final darkTheme = designTheme(brightness: Brightness.dark);
 
-class DesignDeleteBackground extends StatelessWidget {
-  const DesignDeleteBackground({this.margin = EdgeInsets.zero, super.key});
-
-  final EdgeInsetsGeometry margin;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    margin: margin,
-    color: _ink,
-    child: Align(
-      alignment: Alignment.centerRight,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: const Icon(Icons.delete_outline, color: _paper),
-      ),
-    ),
-  );
-}
-
 class DesignSwipeToDelete extends StatefulWidget {
   const DesignSwipeToDelete({
     required this.dismissKey,
-    required this.confirmDismiss,
-    required this.onDismissed,
+    required this.onDelete,
     required this.child,
     this.backgroundMargin = EdgeInsets.zero,
-    super.key,
-  });
+  }) : super(key: dismissKey);
 
   final Key dismissKey;
-  final Future<bool> Function() confirmDismiss;
-  final VoidCallback onDismissed;
+  final Future<void> Function() onDelete;
   final Widget child;
   final EdgeInsetsGeometry backgroundMargin;
 
@@ -409,34 +389,139 @@ class DesignSwipeToDelete extends StatefulWidget {
   State<DesignSwipeToDelete> createState() => _DesignSwipeToDeleteState();
 }
 
-class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete> {
-  static const _threshold = 0.7;
-  var _pointerDown = false;
-  var _dragProgress = 0.0;
+class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete>
+    with SingleTickerProviderStateMixin {
+  static const _actionExtent = 72.0;
+  static const _settleThreshold = 0.5;
+  late final AnimationController _position;
+  var _revealed = false;
+  var _deleting = false;
 
   @override
-  Widget build(BuildContext context) => Listener(
-    onPointerDown: (_) {
-      _pointerDown = true;
-      _dragProgress = 0;
-    },
-    onPointerUp: (_) => _pointerDown = false,
-    onPointerCancel: (_) => _pointerDown = false,
-    child: Dismissible(
-      key: widget.dismissKey,
-      direction: DismissDirection.endToStart,
-      dismissThresholds: const {DismissDirection.endToStart: _threshold},
-      onUpdate: (details) {
-        if (_pointerDown) _dragProgress = details.progress;
-      },
-      confirmDismiss: (_) => _dragProgress >= _threshold
-          ? widget.confirmDismiss()
-          : Future.value(false),
-      onDismissed: (_) => widget.onDismissed(),
-      background: DesignDeleteBackground(margin: widget.backgroundMargin),
-      child: widget.child,
-    ),
-  );
+  void initState() {
+    super.initState();
+    _position = AnimationController.unbounded(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+  }
+
+  @override
+  void dispose() {
+    _position.dispose();
+    super.dispose();
+  }
+
+  void _updateDrag(DragUpdateDetails details) {
+    if (_deleting) return;
+    _position.value = (_position.value - details.delta.dx / _actionExtent)
+        .clamp(0.0, 2.0)
+        .toDouble();
+  }
+
+  void _endDrag(DragEndDetails details) {
+    if (_deleting) return;
+    if (_revealed && _position.value >= 1 + _settleThreshold) {
+      _delete();
+      return;
+    }
+    final reveal = _position.value >= _settleThreshold;
+    if (_revealed != reveal) setState(() => _revealed = reveal);
+    _position.animateTo(reveal ? 1 : 0, curve: Curves.easeOutCubic);
+  }
+
+  void _cancelDrag() {
+    _position.animateTo(_revealed ? 1 : 0, curve: Curves.easeOutCubic);
+  }
+
+  void _reveal() {
+    if (_revealed || _deleting) return;
+    setState(() => _revealed = true);
+    _position.animateTo(1, curve: Curves.easeOutCubic);
+  }
+
+  Future<void> _delete() async {
+    if (_deleting) return;
+    _deleting = true;
+    _position.animateTo(2, curve: Curves.easeInCubic);
+    await widget.onDelete();
+    if (!mounted) return;
+    setState(() {
+      _deleting = false;
+      _revealed = false;
+    });
+    _position.animateTo(0, curve: Curves.easeOutCubic);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return ClipRect(
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: AnimatedBuilder(
+              animation: _position,
+              builder: (_, child) => Opacity(
+                opacity: _position.value.clamp(0.0, 1.0).toDouble(),
+                child: child,
+              ),
+              child: Padding(
+                padding: widget.backgroundMargin,
+                child: ColoredBox(
+                  color: scheme.surface,
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: SizedBox.square(
+                      dimension: _actionExtent,
+                      child: Tooltip(
+                        message: tr(context, 'Delete'),
+                        child: Material(
+                          key: const Key('swipe-delete-action'),
+                          color: scheme.primary,
+                          child: InkWell(
+                            onTap: _revealed && !_deleting ? _delete : null,
+                            child: Icon(
+                              Icons.delete_outline,
+                              color: scheme.onPrimary,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          Semantics(
+            customSemanticsActions: {
+              CustomSemanticsAction(
+                label: tr(
+                  context,
+                  _revealed ? 'Delete' : 'Reveal delete action',
+                ),
+              ): _revealed ? _delete : _reveal,
+            },
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onHorizontalDragUpdate: _updateDrag,
+              onHorizontalDragEnd: _endDrag,
+              onHorizontalDragCancel: _cancelDrag,
+              child: AnimatedBuilder(
+                animation: _position,
+                child: widget.child,
+                builder: (_, child) => Transform.translate(
+                  offset: Offset(-_position.value * _actionExtent, 0),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Large centered header that settles into the compact toolbar shown in the
@@ -487,9 +572,11 @@ class DesignHeader extends StatelessWidget {
         clipBehavior: Clip.none,
         children: [
           if (leading != null)
-            Positioned(
+            AnimatedPositioned(
+              duration: animationDuration,
+              curve: Curves.easeOutCubic,
               left: 12,
-              top: 12,
+              top: _lerp(12, 208),
               width: 48,
               height: 48,
               child: leading!,

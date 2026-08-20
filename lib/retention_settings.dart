@@ -25,6 +25,9 @@ class SettingsScreen extends StatelessWidget {
     this.settings,
     this.database,
     this.onSettingsChanged,
+    this.onCheckForUpdates,
+    this.onReportBug,
+    this.onDocumentation,
     super.key,
   });
 
@@ -34,6 +37,9 @@ class SettingsScreen extends StatelessWidget {
   final AppSettingsRepository? settings;
   final SubscriptionStore? database;
   final Future<void> Function()? onSettingsChanged;
+  final VoidCallback? onCheckForUpdates;
+  final VoidCallback? onReportBug;
+  final VoidCallback? onDocumentation;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -63,6 +69,9 @@ class SettingsScreen extends StatelessWidget {
               repository: settings!,
               database: database,
               onChanged: onSettingsChanged,
+              onCheckForUpdates: onCheckForUpdates,
+              onReportBug: onReportBug,
+              onDocumentation: onDocumentation,
             ),
         ],
       ),
@@ -857,11 +866,17 @@ class _AppSettingsPanel extends StatefulWidget {
     required this.repository,
     this.database,
     this.onChanged,
+    this.onCheckForUpdates,
+    this.onReportBug,
+    this.onDocumentation,
   });
 
   final AppSettingsRepository repository;
   final SubscriptionStore? database;
   final Future<void> Function()? onChanged;
+  final VoidCallback? onCheckForUpdates;
+  final VoidCallback? onReportBug;
+  final VoidCallback? onDocumentation;
 
   @override
   State<_AppSettingsPanel> createState() => _AppSettingsPanelState();
@@ -1345,6 +1360,28 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 ),
               ),
             ),
+            if (widget.onCheckForUpdates != null)
+              ListTile(
+                key: const Key('check-for-updates-setting'),
+                leading: const Icon(Icons.system_update_alt),
+                title: const LText('Check for updates'),
+                subtitle: const LText('View and install the latest release'),
+                onTap: widget.onCheckForUpdates,
+              ),
+            if (widget.onReportBug != null)
+              ListTile(
+                key: const Key('report-bug-setting'),
+                leading: const Icon(Icons.bug_report_outlined),
+                title: const LText('Report a bug'),
+                onTap: widget.onReportBug,
+              ),
+            if (widget.onDocumentation != null)
+              ListTile(
+                key: const Key('documentation-setting'),
+                leading: const Icon(Icons.menu_book_outlined),
+                title: const LText('Documentation'),
+                onTap: widget.onDocumentation,
+              ),
           ],
         ),
       ],

@@ -531,29 +531,6 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     }
   }
 
-  Future<bool> _confirmDeleteMessage() async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const LText('Delete notification?'),
-          content: const LText('Delete this notification from this device?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const LText('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: TextButton.styleFrom(
-                foregroundColor: Theme.of(context).colorScheme.error,
-              ),
-              child: const LText('Delete'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
-
   Future<void> _openAttachment(StoredMessage message) async {
     final attachment = message.attachment;
     if (attachment == null) return;
@@ -1025,8 +1002,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         final message = messages[index];
         return DesignSwipeToDelete(
           dismissKey: ValueKey('dismiss-message-${message.localId}'),
-          confirmDismiss: _confirmDeleteMessage,
-          onDismissed: () => _deleteMessage(message),
+          onDelete: () => _deleteMessage(message),
           backgroundMargin: const EdgeInsets.symmetric(vertical: 6),
           child: _MessageCard(
             key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),

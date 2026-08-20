@@ -372,7 +372,7 @@ class BackgroundListenerService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setSmallIcon(R.drawable.ic_background_listener)
+            .setSmallIcon(R.drawable.ic_ntfy_notification)
             .setContentTitle(getString(R.string.background_listener_notification_title))
             .setContentIntent(openApp)
             .setOngoing(true)

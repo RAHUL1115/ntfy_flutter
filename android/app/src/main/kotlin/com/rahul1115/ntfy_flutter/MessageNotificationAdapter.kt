@@ -148,7 +148,7 @@ object MessageNotificationAdapter {
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let(builder::setLargeIcon)
         }
         builder
-            .setSmallIcon(R.drawable.ic_background_listener)
+            .setSmallIcon(R.drawable.ic_ntfy_notification)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(Notification.BigTextStyle().bigText(body))
@@ -266,7 +266,7 @@ object MessageNotificationAdapter {
         manager.notify(
             CONNECTION_ALERT_ID,
             builder
-                .setSmallIcon(R.drawable.ic_background_listener)
+                .setSmallIcon(R.drawable.ic_ntfy_notification)
                 .setContentTitle(context.getString(R.string.connection_alert_title))
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))

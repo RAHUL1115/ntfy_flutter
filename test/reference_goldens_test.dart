@@ -147,13 +147,6 @@ void main() {
       matchesGoldenFile('goldens/reference_home.png'),
     );
 
-    await tester.tap(find.byTooltip('Show menu'));
-    await pumpTransition();
-    await expectLater(
-      find.byType(Overlay),
-      matchesGoldenFile('goldens/reference_home_options.png'),
-    );
-
     await pump(
       SubscriptionsScreen(
         store: store,

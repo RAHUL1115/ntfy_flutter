@@ -64,6 +64,36 @@ void main() {
     expect(tester.getSize(find.byType(DesignHeader)).height, 268);
   });
 
+  testWidgets('expanded header aligns back button with trailing actions', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: Scaffold(
+          body: DesignHeader(
+            progress: 1,
+            duration: Duration.zero,
+            title: const Text('Page title'),
+            leading: const SizedBox(key: Key('expanded-back')),
+            actions: const [
+              SizedBox(
+                key: Key('expanded-action'),
+                width: 48,
+                height: 48,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      tester.getTopLeft(find.byKey(const Key('expanded-back'))).dy,
+      tester.getTopLeft(find.byKey(const Key('expanded-action'))).dy,
+    );
+  });
+
   testWidgets('expanded header follows a drag started on the title', (
     tester,
   ) async {
@@ -457,39 +487,83 @@ void main() {
     semantics.dispose();
   });
 
-  testWidgets('subscription deletion needs one deliberate swipe', (
+  testWidgets('home settings action owns update and support links', (
+    tester,
+  ) async {
+    final settings = AppSettingsStore(
+      preferences: _MemoryPreferences(),
+      secrets: _MemorySecrets(),
+    );
+    await tester.pumpWidget(NtfyApp(store: store, settings: settings));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('home-settings-action')), findsOneWidget);
+    expect(find.byType(PopupMenuButton), findsNothing);
+
+    await tester.tap(find.byKey(const Key('home-settings-action')));
+    await tester.pumpAndSettle();
+    expect(find.text('Settings'), findsWidgets);
+    expect(find.byKey(const Key('check-for-updates-setting')), findsOneWidget);
+    expect(find.byKey(const Key('report-bug-setting')), findsOneWidget);
+    expect(find.byKey(const Key('documentation-setting')), findsOneWidget);
+  });
+
+  testWidgets('subscription deletion needs two stages and supports undo', (
     tester,
   ) async {
     await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
     await tester.pumpWidget(NtfyApp(store: store));
     await tester.pumpAndSettle();
 
-    await tester.fling(find.text('Production'), const Offset(-300, 0), 3000);
+    final row = find.byKey(const ValueKey('subscription-1'));
+    await tester.drag(row, const Offset(-180, 0));
     await tester.pumpAndSettle();
+
     expect(find.text('Production'), findsOneWidget);
     expect((await store.all()).single.displayName, 'Production');
-    expect(find.text('Unsubscribe from topic?'), findsNothing);
-
-    await tester.drag(find.text('Production'), const Offset(-700, 0));
-    await tester.pumpAndSettle();
-    expect(find.text('Unsubscribe from topic?'), findsOneWidget);
-    expect((await store.all()).single.displayName, 'Production');
-
-    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
-    await tester.pumpAndSettle();
-    expect(find.text('Production'), findsOneWidget);
-    expect((await store.all()).single.displayName, 'Production');
-
-    await tester.drag(find.text('Production'), const Offset(-700, 0));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(TextButton, 'Unsubscribe'));
-    await tester.pumpAndSettle();
-
-    expect(await store.all(), isEmpty);
     expect(
-      find.text("It looks like you don't have any subscriptions yet."),
+      find.descendant(
+        of: row,
+        matching: find.byKey(const Key('swipe-delete-action')),
+      ),
       findsOneWidget,
     );
+    expect(find.text('Unsubscribe from topic?'), findsNothing);
+
+    await tester.drag(find.text('Production'), const Offset(-180, 0));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Production'), findsNothing);
+    expect(find.text('Subscription deleted'), findsOneWidget);
+    expect((await store.all()).single.displayName, 'Production');
+
+    await tester.tap(find.widgetWithText(TextButton, 'Undo'));
+    await tester.pumpAndSettle();
+    expect(find.text('Production'), findsOneWidget);
+    expect((await store.all()).single.displayName, 'Production');
+  });
+
+  testWidgets('subscription delete action commits after undo expires', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/alerts', displayName: 'Production');
+    await tester.pumpWidget(NtfyApp(store: store));
+    await tester.pumpAndSettle();
+
+    final row = find.byKey(const ValueKey('subscription-1'));
+    await tester.drag(row, const Offset(-180, 0));
+    await tester.pumpAndSettle();
+    final action = find.descendant(
+      of: row,
+      matching: find.byKey(const Key('swipe-delete-action')),
+    );
+    await tester.tap(action);
+    await tester.pump();
+    expect(find.text('Production'), findsNothing);
+
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+    expect(await store.all(), isEmpty);
   });
 
   testWidgets('keeps the dialog open while a subscription is saving', (
@@ -590,7 +664,7 @@ void main() {
       await tester.pumpWidget(NtfyApp(store: store));
 
       expect(find.bySemanticsLabel('Add subscription'), findsOneWidget);
-      expect(find.byTooltip('Show menu'), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsOneWidget);
       await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
     } finally {
       semantics.dispose();
@@ -603,9 +677,7 @@ void main() {
     final semantics = tester.ensureSemantics();
     await tester.pumpWidget(NtfyApp(store: store));
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byKey(const Key('home-settings-action')));
     await tester.pumpAndSettle();
 
     expect(find.text('Settings'), findsOneWidget);
@@ -639,9 +711,7 @@ void main() {
       NtfyApp(store: store, backgroundListening: background),
     );
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byKey(const Key('home-settings-action')));
     await tester.pumpAndSettle();
 
     expect(find.text('Background listening'), findsOneWidget);
@@ -677,9 +747,7 @@ void main() {
     await tester.pumpWidget(NtfyApp(store: store, settings: settings));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(Icons.more_vert));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Settings'));
+    await tester.tap(find.byKey(const Key('home-settings-action')));
     await tester.pumpAndSettle();
     final setting = find.byKey(const Key('new-messages-at-bottom-setting'));
     await tester.ensureVisible(setting);
