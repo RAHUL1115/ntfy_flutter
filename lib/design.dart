@@ -623,7 +623,11 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
     final next = expanded
         ? designHeaderExpandedHeight
         : designHeaderCollapsedHeight;
-    if (_dragging || next != _headerExtent) {
+    // Settling ends any expansion pull; reset its accumulators so a later
+    // pull starts from a consistent baseline instead of a stale credit.
+    _overscrollCredit = 0;
+    _lastExpandExcess = 0;
+    if ((_dragging && !keepDragging) || next != _headerExtent) {
       setState(() {
         if (!keepDragging) _dragging = false;
         _headerExtent = next;
@@ -699,11 +703,16 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
         _overscrollCredit = 0;
         _lastExpandExcess = 0;
       case ScrollUpdateNotification(:final scrollDelta)
-          when _dragging && scrollDelta != null:
+          when _dragging &&
+                scrollDelta != null &&
+                notification.metrics.pixels >
+                    notification.metrics.minScrollExtent:
         if (scrollDelta > 0) {
-          // The list itself is moving under the drag, so settle the header
-          // collapsed — but keep the drag live so the header still tracks
-          // the finger if the gesture reverses.
+          // The list itself is moving into its content under the drag, so
+          // settle the header collapsed — but keep the drag live so the
+          // header still tracks the finger if the gesture reverses. The
+          // pixels guard skips bounce-back ballistics at the top edge,
+          // which must not collapse a just-expanded header.
           _settle(false, keepDragging: true);
         }
       case OverscrollNotification(:final overscroll, dragDetails: != null):
@@ -737,10 +746,11 @@ class _CollapsibleDesignBodyState extends State<CollapsibleDesignBody> {
   }
 
   /// Expands the header by [pixels] of continued reverse (scroll-up) user
-  /// drag at the top of the list, after a deliberate dead zone. Returns the
-  /// drag delta that is still left for the list (further overscroll), so the
-  /// growth stays linear in the pull length. Called from
-  /// [_DesignHeaderScrollPhysics].
+  /// drag at the top of the list, after a deliberate dead zone. Returns 0
+  /// while the pull is still growing the header (the pixels become header
+  /// extent, keeping the list pinned at its top edge), or [pixels] once the
+  /// header is fully open (a genuine overscroll that can arm pull-to-
+  /// refresh). Called from [_DesignHeaderScrollPhysics].
   double _consumeReverseUserOffset(double pixels) {
     if (widget.forceCollapsed) return pixels;
     // Virtual extent where this pull started: the live extent minus what the
@@ -845,12 +855,14 @@ class _DesignHeaderScrollPhysics extends ScrollPhysics {
   final _CollapsibleDesignBodyState state;
 
   @override
-  _DesignHeaderScrollPhysics applyTo(ScrollPhysics child) =>
-      _DesignHeaderScrollPhysics(state: state, parent: child);
+  _DesignHeaderScrollPhysics applyTo(ScrollPhysics? child) =>
+      _DesignHeaderScrollPhysics(state: state, parent: buildParent(child));
 
   @override
   double applyPhysicsToUserOffset(ScrollMetrics position, double offset) {
-    if (state._headerDragging || !state.mounted) {
+    if (position.axis != Axis.vertical ||
+        state._headerDragging ||
+        !state.mounted) {
       return super.applyPhysicsToUserOffset(position, offset);
     }
     if (offset < 0) {
