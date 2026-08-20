@@ -1387,6 +1387,7 @@ class _MessageBar extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
+                    key: const Key('expand-composer-shell'),
                     width: 48,
                     height: 48,
                     decoration: BoxDecoration(

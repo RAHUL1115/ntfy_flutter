@@ -847,7 +847,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      tester.getSize(find.byKey(const Key('expand-composer'))).height,
+      tester.getSize(find.byKey(const Key('expand-composer-shell'))).height,
       48,
     );
     expect(
