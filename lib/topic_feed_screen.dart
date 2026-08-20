@@ -721,6 +721,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     return PopScope(
       canPop: !_searching,
       onPopInvokedWithResult: (didPop, _) {
@@ -731,9 +732,12 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
           });
         }
       },
-      child: Scaffold(
-        resizeToAvoidBottomInset: false,
-        body: CollapsibleDesignBody(
+      child: MediaQuery.removeViewInsets(
+        context: context,
+        removeBottom: true,
+        child: Scaffold(
+          resizeToAvoidBottomInset: false,
+          body: CollapsibleDesignBody(
           scrollController: _scrollController,
           forceCollapsed: _searching,
           onCollapsedTitleTap: _searching
@@ -814,9 +818,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
             ? AnimatedPadding(
                 duration: const Duration(milliseconds: 180),
                 curve: Curves.easeOutCubic,
-                padding: EdgeInsets.only(
-                  bottom: MediaQuery.viewInsetsOf(context).bottom,
-                ),
+                padding: EdgeInsets.only(bottom: keyboardInset),
                 child: _MessageBar(
                   controller: _quickMessage,
                   sending: _publishing,
@@ -826,7 +828,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                 ),
               )
             : null,
-        floatingActionButton: _showNewMessages
+          floatingActionButton: _showNewMessages
             ? FloatingActionButton.extended(
                 key: const Key('new-messages-action'),
                 onPressed: _scrollToLatest,
@@ -837,7 +839,8 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
                 ),
                 label: const LText('New messages'),
               )
-            : null,
+              : null,
+        ),
       ),
     );
   }
