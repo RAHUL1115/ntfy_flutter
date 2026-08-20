@@ -859,7 +859,9 @@ void main() {
     final composerBottom = tester
         .getBottomLeft(find.byKey(const Key('quick-send')))
         .dy;
-    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    tester.view.viewInsets = FakeViewPadding(
+      bottom: 300 * tester.view.devicePixelRatio,
+    );
     await tester.pumpAndSettle();
     expect(
       composerBottom -
