@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/material.dart';
 import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_settings.dart';
@@ -22,6 +23,7 @@ import 'retention_settings.dart';
 import 'subscriptions.dart';
 import 'topic_feed.dart';
 import 'topic_feed_screen.dart';
+import 'update_check.dart';
 
 export 'design.dart' show darkTheme, lightTheme;
 
@@ -386,6 +388,52 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
     }
   }
 
+  Future<void> _checkForUpdates() async {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: LText('Checking for updates…')));
+    try {
+      final current = (await PackageInfo.fromPlatform()).version;
+      final latest = await fetchLatestRelease();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      if (!isNewerRelease(latest.version, current)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: LText('ntfy $current is up to date.')),
+        );
+        return;
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const LText('Update available'),
+          content: LText('ntfy ${latest.version} is available.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const LText('Not now'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _openExternal(latest.url);
+              },
+              child: const LText('View release'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(
+            content: LText('Could not check for updates. Try again.'),
+          ),
+        );
+    }
+  }
+
   Future<void> _openSettings() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -401,11 +449,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               ? widget.store as SubscriptionStore
               : null,
           onSettingsChanged: widget.onSettingsChanged,
-          onCheckForUpdates: () => _openExternal(
-            Uri.parse(
-              'https://github.com/RAHUL1115/ntfy_flutter/releases/latest',
-            ),
-          ),
+          onCheckForUpdates: _checkForUpdates,
           onReportBug: () => _openExternal(
             Uri.parse('https://github.com/RAHUL1115/ntfy_flutter/issues'),
           ),
