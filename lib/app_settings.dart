@@ -16,8 +16,8 @@ double? appFontScaleFactor(AppFontScalePreference preference) =>
     switch (preference) {
       AppFontScalePreference.system => null,
       AppFontScalePreference.small => 0.9,
-      AppFontScalePreference.standard => 1.0,
-      AppFontScalePreference.large => 1.0,
+      AppFontScalePreference.standard => 1.15,
+      AppFontScalePreference.large => 1.3,
     };
 
 enum ConnectionProtocol { http, websocket }
@@ -67,7 +67,7 @@ class AppSettings {
     this.theme = AppThemePreference.system,
     AppAccentPreference accentColor = AppAccentPreference.ntfyTeal,
     bool? dynamicColors,
-    this.fontScale = AppFontScalePreference.large,
+    this.fontScale = AppFontScalePreference.standard,
     this.messageBar = MessageBarPreference.enabled,
     this.newMessagesAtBottom = false,
     this.connectionAlertSeconds = 0,
@@ -212,7 +212,7 @@ class AppSettings {
           : enumValue(
               AppFontScalePreference.values,
               'fontScale',
-              AppFontScalePreference.large,
+              AppFontScalePreference.standard,
             ),
       messageBar: enumValue(
         MessageBarPreference.values,

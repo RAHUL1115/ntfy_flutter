@@ -55,10 +55,10 @@ void main() {
     final migrated = AppSettings.fromJson(json);
 
     expect(migrated.accentColor, AppAccentPreference.dynamic);
-    expect(migrated.fontScale, AppFontScalePreference.large);
+    expect(migrated.fontScale, AppFontScalePreference.standard);
   });
 
-  test('legacy extra-large font size returns to the app baseline', () {
+  test('legacy extra-large font size migrates to Large', () {
     final json = const AppSettings().toJson()..['fontScale'] = 'extraLarge';
 
     expect(AppSettings.fromJson(json).fontScale, AppFontScalePreference.large);

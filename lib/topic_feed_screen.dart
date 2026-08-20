@@ -958,46 +958,55 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
 
   Widget _buildMessages() {
     if (_state.messages.isEmpty) {
-      return Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Center(child: FramedTopicIcon(size: 64)),
-              const SizedBox(height: 16),
-              LText(
-                "You haven't received any notifications for this topic yet.",
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 16),
-              const LText(
-                'Send a message to this topic with an HTTP PUT or POST request.',
-              ),
-              const SizedBox(height: 8),
-              const LText('Example (using curl):'),
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outline,
+      return MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.noScaling),
+        child: Center(
+          child: SingleChildScrollView(
+            key: const Key('topic-empty-state'),
+            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Center(
+                  child: FramedTopicIcon(
+                    key: Key('topic-empty-icon'),
+                    size: 64,
                   ),
                 ),
-                child: LText(
-                  '\$ curl -d "Hi" ${_subscription.url}',
-                  style: const TextStyle(
-                    fontFamily: 'JetBrainsMono',
-                    fontSize: 11,
-                    height: 1.5,
+                const SizedBox(height: 16),
+                LText(
+                  "You haven't received any notifications for this topic yet.",
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 16),
+                const LText(
+                  'Send a message to this topic with an HTTP PUT or POST request.',
+                ),
+                const SizedBox(height: 8),
+                const LText('Example (using curl):'),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outline,
+                    ),
+                  ),
+                  child: LText(
+                    '\$ curl -d "Hi" ${_subscription.url}',
+                    style: const TextStyle(
+                      fontFamily: 'JetBrainsMono',
+                      fontSize: 11,
+                      height: 1.5,
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       );

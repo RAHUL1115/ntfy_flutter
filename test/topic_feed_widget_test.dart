@@ -83,6 +83,42 @@ void main() {
     );
   });
 
+  testWidgets('empty topic keeps its original background scale', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 0);
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: const TextScaler.linear(2)),
+          child: child!,
+        ),
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final empty = find.byKey(const Key('topic-empty-state'));
+    expect(empty, findsOneWidget);
+    expect(MediaQuery.of(tester.element(empty)).textScaler.scale(16), 16);
+    expect(
+      tester.getSize(find.byKey(const Key('topic-empty-icon'))),
+      const Size(64, 64),
+    );
+  });
+
   testWidgets('markdown content is rendered as markdown', (tester) async {
     final repository = _WidgetRepository(messageCount: 0);
     repository.messages.add(
