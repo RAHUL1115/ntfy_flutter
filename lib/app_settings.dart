@@ -8,6 +8,19 @@ import 'package:path_provider/path_provider.dart';
 
 enum AppThemePreference { system, light, dark }
 
+enum AppAccentPreference { ntfyTeal, dynamic, blue, violet, rose, orange }
+
+enum AppFontScalePreference { system, small, standard, large, extraLarge }
+
+double? appFontScaleFactor(AppFontScalePreference preference) =>
+    switch (preference) {
+      AppFontScalePreference.system => null,
+      AppFontScalePreference.small => 0.9,
+      AppFontScalePreference.standard => 1.0,
+      AppFontScalePreference.large => 1.15,
+      AppFontScalePreference.extraLarge => 1.3,
+    };
+
 enum ConnectionProtocol { http, websocket }
 
 enum MessageBarPreference { enabled, disabled }
@@ -53,7 +66,9 @@ class AppSettings {
     this.defaultServer = 'https://ntfy.sh',
     this.languageTag = 'system',
     this.theme = AppThemePreference.system,
-    this.dynamicColors = false,
+    AppAccentPreference accentColor = AppAccentPreference.ntfyTeal,
+    bool? dynamicColors,
+    this.fontScale = AppFontScalePreference.system,
     this.messageBar = MessageBarPreference.enabled,
     this.newMessagesAtBottom = false,
     this.connectionAlertSeconds = 0,
@@ -62,12 +77,16 @@ class AppSettings {
     this.unifiedPushEnabled = false,
     this.recordLogs = false,
     this.backupMode = BackupMode.everything,
-  });
+  }) : accentColor = dynamicColors == true
+           ? AppAccentPreference.dynamic
+           : accentColor;
 
   final String defaultServer;
   final String languageTag;
   final AppThemePreference theme;
-  final bool dynamicColors;
+  final AppAccentPreference accentColor;
+  bool get dynamicColors => accentColor == AppAccentPreference.dynamic;
+  final AppFontScalePreference fontScale;
   final MessageBarPreference messageBar;
   final bool newMessagesAtBottom;
   final int connectionAlertSeconds;
@@ -82,6 +101,8 @@ class AppSettings {
     String? languageTag,
     AppThemePreference? theme,
     bool? dynamicColors,
+    AppAccentPreference? accentColor,
+    AppFontScalePreference? fontScale,
     MessageBarPreference? messageBar,
     bool? newMessagesAtBottom,
     int? connectionAlertSeconds,
@@ -94,7 +115,12 @@ class AppSettings {
     defaultServer: defaultServer ?? this.defaultServer,
     languageTag: languageTag ?? this.languageTag,
     theme: theme ?? this.theme,
-    dynamicColors: dynamicColors ?? this.dynamicColors,
+    accentColor: dynamicColors == null
+        ? accentColor ?? this.accentColor
+        : dynamicColors
+        ? AppAccentPreference.dynamic
+        : AppAccentPreference.ntfyTeal,
+    fontScale: fontScale ?? this.fontScale,
     messageBar: messageBar ?? this.messageBar,
     newMessagesAtBottom: newMessagesAtBottom ?? this.newMessagesAtBottom,
     connectionAlertSeconds:
@@ -111,6 +137,8 @@ class AppSettings {
     'languageTag': languageTag,
     'theme': theme.name,
     'dynamicColors': dynamicColors,
+    'accentColor': accentColor.name,
+    'fontScale': fontScale.name,
     'messageBar': messageBar.name,
     'newMessagesAtBottom': newMessagesAtBottom,
     'connectionAlertSeconds': connectionAlertSeconds,
@@ -142,7 +170,18 @@ class AppSettings {
         'theme',
         AppThemePreference.system,
       ),
-      dynamicColors: value['dynamicColors'] as bool? ?? false,
+      accentColor: enumValue(
+        AppAccentPreference.values,
+        'accentColor',
+        value['dynamicColors'] == true
+            ? AppAccentPreference.dynamic
+            : AppAccentPreference.ntfyTeal,
+      ),
+      fontScale: enumValue(
+        AppFontScalePreference.values,
+        'fontScale',
+        AppFontScalePreference.system,
+      ),
       messageBar: enumValue(
         MessageBarPreference.values,
         'messageBar',

@@ -521,12 +521,18 @@ void main() {
 
     expect(find.text('Production'), findsOneWidget);
     expect((await store.all()).single.displayName, 'Production');
+    final action = find.descendant(
+      of: row,
+      matching: find.byKey(const Key('swipe-delete-action')),
+    );
+    expect(action, findsOneWidget);
+    expect(tester.getSize(action), const Size.square(72));
     expect(
-      find.descendant(
-        of: row,
-        matching: find.byKey(const Key('swipe-delete-action')),
+      tester.getTopRight(action).dx,
+      moreOrLessEquals(
+        tester.view.physicalSize.width / tester.view.devicePixelRatio - 16,
+        epsilon: 1,
       ),
-      findsOneWidget,
     );
     expect(find.text('Unsubscribe from topic?'), findsNothing);
 
@@ -741,7 +747,9 @@ void main() {
     expect(host.stops, 1);
   });
 
-  testWidgets('settings persists new messages at bottom', (tester) async {
+  testWidgets('settings persists appearance and message-list choices', (
+    tester,
+  ) async {
     final settings = AppSettingsStore(
       preferences: _MemoryPreferences(),
       secrets: _MemorySecrets(),
@@ -751,13 +759,33 @@ void main() {
 
     await tester.tap(find.byKey(const Key('home-settings-action')));
     await tester.pumpAndSettle();
-    final setting = find.byKey(const Key('new-messages-at-bottom-setting'));
-    await tester.ensureVisible(setting);
+
+    final accent = find.byKey(const Key('accent-color-setting'));
+    await tester.ensureVisible(accent);
+    await tester.tap(accent);
     await tester.pumpAndSettle();
-    await tester.tap(setting);
+    await tester.tap(find.text('Blue'));
     await tester.pumpAndSettle();
 
-    expect((await settings.loadSettings()).newMessagesAtBottom, isTrue);
+    final fontSize = find.byKey(const Key('font-size-setting'));
+    await tester.ensureVisible(fontSize);
+    await tester.tap(fontSize);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Large'));
+    await tester.pumpAndSettle();
+
+    final messageOrder = find.byKey(
+      const Key('new-messages-at-bottom-setting'),
+    );
+    await tester.ensureVisible(messageOrder);
+    await tester.pumpAndSettle();
+    await tester.tap(messageOrder);
+    await tester.pumpAndSettle();
+
+    final saved = await settings.loadSettings();
+    expect(saved.accentColor, AppAccentPreference.blue);
+    expect(saved.fontScale, AppFontScalePreference.large);
+    expect(saved.newMessagesAtBottom, isTrue);
   });
 
   testWidgets('notification taps deduplicate only while the route is open', (

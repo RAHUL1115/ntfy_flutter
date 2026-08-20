@@ -138,6 +138,15 @@ class _NtfyAppState extends State<NtfyApp> {
     publisher: widget.publisher,
   );
 
+  ThemeData _appTheme(Brightness brightness, ColorScheme? dynamicScheme) =>
+      designAppTheme(
+        brightness: brightness,
+        accent: _appSettings.accentColor,
+        dynamicScheme: dynamicScheme,
+      );
+
+  double? get _fontScale => appFontScaleFactor(_appSettings.fontScale);
+
   @override
   void dispose() {
     if (_ownsRetention) unawaited(_retention.close());
@@ -151,12 +160,8 @@ class _NtfyAppState extends State<NtfyApp> {
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: _messengerKey,
       title: 'ntfy',
-      theme: _appSettings.dynamicColors && dynamicLight != null
-          ? designTheme(brightness: Brightness.light, colorScheme: dynamicLight)
-          : lightTheme,
-      darkTheme: _appSettings.dynamicColors && dynamicDark != null
-          ? designTheme(brightness: Brightness.dark, colorScheme: dynamicDark)
-          : darkTheme,
+      theme: _appTheme(Brightness.light, dynamicLight),
+      darkTheme: _appTheme(Brightness.dark, dynamicDark),
       themeMode: switch (_appSettings.theme) {
         AppThemePreference.light => ThemeMode.light,
         AppThemePreference.dark => ThemeMode.dark,
@@ -172,6 +177,16 @@ class _NtfyAppState extends State<NtfyApp> {
         NtfyLocalizations.delegate,
         ...GlobalMaterialLocalizations.delegates,
       ],
+      builder: (context, child) {
+        final scale = _fontScale;
+        if (scale == null || child == null) return child ?? const SizedBox();
+        return MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(scale)),
+          child: child,
+        );
+      },
       navigatorObservers: [_routeObserver],
       home: SubscriptionsScreen(
         store: widget.store,
@@ -797,6 +812,7 @@ class _SubscriptionsScreenState extends State<SubscriptionsScreen>
               return DesignSwipeToDelete(
                 dismissKey: ValueKey('subscription-${subscription.id}'),
                 onDelete: () => _removeSubscription(subscription),
+                backgroundMargin: const EdgeInsets.only(right: 16),
                 child: DecoratedBox(
                   decoration: BoxDecoration(
                     border: Border(

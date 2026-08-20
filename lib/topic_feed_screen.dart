@@ -810,12 +810,19 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
           ),
         ),
         bottomNavigationBar: widget.showMessageBar
-            ? _MessageBar(
-                controller: _quickMessage,
-                sending: _publishing,
-                error: _publishError,
-                onExpand: _openComposer,
-                onSend: _quickPublish,
+            ? AnimatedPadding(
+                duration: const Duration(milliseconds: 180),
+                curve: Curves.easeOutCubic,
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: _MessageBar(
+                  controller: _quickMessage,
+                  sending: _publishing,
+                  error: _publishError,
+                  onExpand: _openComposer,
+                  onSend: _quickPublish,
+                ),
               )
             : null,
         floatingActionButton: _showNewMessages
@@ -1003,7 +1010,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
         return DesignSwipeToDelete(
           dismissKey: ValueKey('dismiss-message-${message.localId}'),
           onDelete: () => _deleteMessage(message),
-          backgroundMargin: const EdgeInsets.symmetric(vertical: 6),
+          backgroundMargin: const EdgeInsets.fromLTRB(0, 6, 16, 6),
           child: _MessageCard(
             key: _messageKeys.putIfAbsent(message.eventId, GlobalKey.new),
             message: message,
@@ -1377,11 +1384,11 @@ class _MessageBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 40,
-                    height: 40,
+                    width: 48,
+                    height: 48,
                     decoration: BoxDecoration(
                       color: theme.colorScheme.surfaceContainerLowest,
                       border: Border.all(color: theme.colorScheme.outline),
@@ -1391,8 +1398,8 @@ class _MessageBar extends StatelessWidget {
                       tooltip: tr(context, 'Expand composer'),
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints.tightFor(
-                        width: 40,
-                        height: 40,
+                        width: 48,
+                        height: 48,
                       ),
                       onPressed: sending ? null : onExpand,
                       icon: const Icon(Icons.add, size: 20),
@@ -1424,9 +1431,10 @@ class _MessageBar extends StatelessWidget {
                           decoration: InputDecoration(
                             hintText: tr(context, 'Type a message here'),
                             isDense: true,
+                            constraints: const BoxConstraints(minHeight: 48),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: 18,
-                              vertical: 10,
+                              vertical: 12,
                             ),
                           ),
                         ),
@@ -1442,7 +1450,7 @@ class _MessageBar extends StatelessWidget {
                       child: InkWell(
                         onTap: sending ? null : onSend,
                         child: SizedBox.square(
-                          dimension: 44,
+                          dimension: 48,
                           child: Center(
                             child: sending
                                 ? Semantics(

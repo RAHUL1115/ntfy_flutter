@@ -22,7 +22,8 @@ void main() {
         defaultServer: 'https://example.com',
         languageTag: 'de',
         theme: AppThemePreference.dark,
-        dynamicColors: false,
+        accentColor: AppAccentPreference.rose,
+        fontScale: AppFontScalePreference.large,
         messageBar: MessageBarPreference.disabled,
         newMessagesAtBottom: true,
         connectionAlertSeconds: 900,
@@ -41,6 +42,16 @@ void main() {
       expect((await reopened.loadSettings()).toJson(), expected.toJson());
     },
   );
+
+  test('legacy dynamic color setting migrates to the accent selector', () {
+    final json = const AppSettings().toJson()
+      ..remove('accentColor')
+      ..['dynamicColors'] = true;
+    final migrated = AppSettings.fromJson(json);
+
+    expect(migrated.accentColor, AppAccentPreference.dynamic);
+    expect(migrated.fontScale, AppFontScalePreference.system);
+  });
 
   test(
     'logging is opt-in and keeps only the newest thousand entries',

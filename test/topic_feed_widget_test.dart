@@ -604,6 +604,14 @@ void main() {
     expect(repository.messages, hasLength(3));
     expect(find.text('Delete notification?'), findsNothing);
     expect(action, findsOneWidget);
+    expect(tester.getSize(action), const Size.square(72));
+    expect(
+      tester.getTopRight(action).dx,
+      moreOrLessEquals(
+        tester.view.physicalSize.width / tester.view.devicePixelRatio - 16,
+        epsilon: 1,
+      ),
+    );
     expect(
       tester.widget<InkWell>(
         find.descendant(of: action, matching: find.byType(InkWell)),
@@ -817,6 +825,7 @@ void main() {
   testWidgets('composer validates and preserves a failed draft for retry', (
     tester,
   ) async {
+    addTearDown(tester.view.resetViewInsets);
     final repository = _WidgetRepository(messageCount: 0);
     final publisher = _FakePublisher()
       ..error = 'Server unavailable. Try again.';
@@ -835,6 +844,29 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Production alerts'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester.getSize(find.byKey(const Key('expand-composer'))).height,
+      48,
+    );
+    expect(
+      tester.getSize(find.byKey(const Key('quick-message-field'))).height,
+      48,
+    );
+    expect(tester.getSize(find.byKey(const Key('quick-send'))).height, 48);
+
+    final composerBottom = tester
+        .getBottomLeft(find.byKey(const Key('quick-send')))
+        .dy;
+    tester.view.viewInsets = const FakeViewPadding(bottom: 300);
+    await tester.pumpAndSettle();
+    expect(
+      composerBottom -
+          tester.getBottomLeft(find.byKey(const Key('quick-send'))).dy,
+      moreOrLessEquals(300, epsilon: 1),
+    );
+    tester.view.resetViewInsets();
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('quick-send')));

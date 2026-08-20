@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 
+import 'app_settings.dart';
 import 'l10n.dart';
 
 /// Design tokens for the "functional minimalist" mobile design in
@@ -149,6 +150,52 @@ ThemeData designTheme({
   colorScheme ?? (brightness == Brightness.light ? _lightScheme : _darkScheme),
   fontFamily == null ? _textTheme : _textTheme.apply(fontFamily: fontFamily),
 );
+
+ThemeData designAccentTheme({
+  required Brightness brightness,
+  required Color seedColor,
+}) {
+  final base = brightness == Brightness.light ? _lightScheme : _darkScheme;
+  final generated = ColorScheme.fromSeed(
+    seedColor: seedColor,
+    brightness: brightness,
+  );
+  return designTheme(
+    brightness: brightness,
+    colorScheme: base.copyWith(
+      primary: generated.primary,
+      onPrimary: generated.onPrimary,
+      primaryContainer: generated.primaryContainer,
+      onPrimaryContainer: generated.onPrimaryContainer,
+      secondary: generated.primary,
+      onSecondary: generated.onPrimary,
+      secondaryContainer: generated.primaryContainer,
+      onSecondaryContainer: generated.onPrimaryContainer,
+      inversePrimary: generated.inversePrimary,
+      shadow: generated.shadow,
+    ),
+  );
+}
+
+ThemeData designAppTheme({
+  required Brightness brightness,
+  required AppAccentPreference accent,
+  ColorScheme? dynamicScheme,
+}) {
+  if (accent == AppAccentPreference.dynamic && dynamicScheme != null) {
+    return designTheme(brightness: brightness, colorScheme: dynamicScheme);
+  }
+  final seed = switch (accent) {
+    AppAccentPreference.blue => const Color(0xff0057b8),
+    AppAccentPreference.violet => const Color(0xff6750a4),
+    AppAccentPreference.rose => const Color(0xffa31545),
+    AppAccentPreference.orange => const Color(0xff9c4300),
+    AppAccentPreference.ntfyTeal || AppAccentPreference.dynamic => null,
+  };
+  return seed == null
+      ? designTheme(brightness: brightness)
+      : designAccentTheme(brightness: brightness, seedColor: seed);
+}
 
 ThemeData _theme(ColorScheme scheme, TextTheme text) {
   final square = RoundedRectangleBorder(
@@ -398,6 +445,10 @@ class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete>
   var _revealed = false;
   var _deleting = false;
 
+  double get _revealExtent =>
+      _actionExtent +
+      widget.backgroundMargin.resolve(Directionality.of(context)).right;
+
   @override
   void initState() {
     super.initState();
@@ -415,7 +466,7 @@ class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete>
 
   void _updateDrag(DragUpdateDetails details) {
     if (_deleting) return;
-    _position.value = (_position.value - details.delta.dx / _actionExtent)
+    _position.value = (_position.value - details.delta.dx / _revealExtent)
         .clamp(0.0, 2.0)
         .toDouble();
   }
@@ -513,7 +564,7 @@ class _DesignSwipeToDeleteState extends State<DesignSwipeToDelete>
                 animation: _position,
                 child: widget.child,
                 builder: (_, child) => Transform.translate(
-                  offset: Offset(-_position.value * _actionExtent, 0),
+                  offset: Offset(-_position.value * _revealExtent, 0),
                   child: child,
                 ),
               ),

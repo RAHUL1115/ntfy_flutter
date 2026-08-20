@@ -1162,15 +1162,53 @@ class _AppSettingsPanelState extends State<_AppSettingsPanel> {
                 if (value != null) await _save(settings.copyWith(theme: value));
               },
             ),
-            _SquareSwitchListTile(
-              key: const Key('dynamic-colors-setting'),
-              title: const LText('Dynamic colors'),
-              subtitle: const LText(
-                'Use colors from the Android system theme.',
-              ),
-              value: settings.dynamicColors,
-              onChanged: (value) =>
-                  _save(settings.copyWith(dynamicColors: value)),
+            ListTile(
+              key: const Key('accent-color-setting'),
+              title: const LText('Accent color'),
+              subtitle: LText(switch (settings.accentColor) {
+                AppAccentPreference.ntfyTeal => 'ntfy teal',
+                AppAccentPreference.dynamic => 'Android dynamic color',
+                AppAccentPreference.blue => 'Blue',
+                AppAccentPreference.violet => 'Violet',
+                AppAccentPreference.rose => 'Rose',
+                AppAccentPreference.orange => 'Orange',
+              }),
+              onTap: () async {
+                final value = await _choose('Accent color', const [
+                  ('ntfy teal', AppAccentPreference.ntfyTeal),
+                  ('Android dynamic color', AppAccentPreference.dynamic),
+                  ('Blue', AppAccentPreference.blue),
+                  ('Violet', AppAccentPreference.violet),
+                  ('Rose', AppAccentPreference.rose),
+                  ('Orange', AppAccentPreference.orange),
+                ]);
+                if (value != null) {
+                  await _save(settings.copyWith(accentColor: value));
+                }
+              },
+            ),
+            ListTile(
+              key: const Key('font-size-setting'),
+              title: const LText('Font size'),
+              subtitle: LText(switch (settings.fontScale) {
+                AppFontScalePreference.system => 'Follow Android setting',
+                AppFontScalePreference.small => 'Small',
+                AppFontScalePreference.standard => 'Default',
+                AppFontScalePreference.large => 'Large',
+                AppFontScalePreference.extraLarge => 'Extra large',
+              }),
+              onTap: () async {
+                final value = await _choose('Font size', const [
+                  ('Follow Android setting', AppFontScalePreference.system),
+                  ('Small', AppFontScalePreference.small),
+                  ('Default', AppFontScalePreference.standard),
+                  ('Large', AppFontScalePreference.large),
+                  ('Extra large', AppFontScalePreference.extraLarge),
+                ]);
+                if (value != null) {
+                  await _save(settings.copyWith(fontScale: value));
+                }
+              },
             ),
             _SquareSwitchListTile(
               key: const Key('message-bar-setting'),
