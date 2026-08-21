@@ -480,14 +480,6 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
     }
   }
 
-  Future<void> _copyTopicUrl() async {
-    await Clipboard.setData(ClipboardData(text: _subscription.url));
-    if (mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: LText('Topic URL copied.')));
-    }
-  }
-
   Future<void> _showConnectionError() async {
     final error = _state.error?.toString() ?? _statusLabel(_state);
     final retry = await showDialog<bool>(
@@ -904,8 +896,6 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
             unawaited(_confirmUnsubscribe());
           case _TopicAction.test:
             unawaited(_sendTestNotification());
-          case _TopicAction.copyUrl:
-            unawaited(_copyTopicUrl());
         }
       },
       itemBuilder: (_) => [
@@ -930,22 +920,16 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
           padding: EdgeInsets.symmetric(horizontal: 16),
           child: LText('Send test notification'),
         ),
-        if (Uri.parse(_subscription.url).host != 'ntfy.sh') ...[
-          const PopupMenuDivider(height: 1),
-          const PopupMenuItem(
-            value: _TopicAction.copyUrl,
-            height: 52,
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: LText('Copy topic URL'),
-          ),
-        ],
         if (widget.onUnsubscribe != null) ...[
           const PopupMenuDivider(height: 1),
-          const PopupMenuItem(
+          PopupMenuItem(
             value: _TopicAction.unsubscribe,
             height: 52,
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: LText('Unsubscribe'),
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: LText(
+              'Unsubscribe',
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
           ),
         ],
       ],
@@ -1056,7 +1040,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
   }
 }
 
-enum _TopicAction { settings, clear, unsubscribe, test, copyUrl }
+enum _TopicAction { settings, clear, unsubscribe, test }
 
 class _ScrollAnchor {
   const _ScrollAnchor(

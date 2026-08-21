@@ -775,6 +775,41 @@ void main() {
     );
   });
 
+  testWidgets('topic menu omits copy and colors unsubscribe as destructive', (
+    tester,
+  ) async {
+    final repository = _WidgetRepository(messageCount: 0)
+      ..subscription = const Subscription(
+        id: 1,
+        url: 'https://example.com/alerts',
+        displayName: 'Production alerts',
+      );
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: lightTheme,
+        home: TopicFeedScreen(
+          subscription: repository.subscription,
+          feed: TopicFeedSession(
+            controller: TopicFeedController(
+              repository: repository,
+              subscription: repository.subscription,
+              client: _WidgetClient(),
+            ),
+          ),
+          retention: RetentionSession(repository),
+          onUnsubscribe: () async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Show menu'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Copy topic URL'), findsNothing);
+    final unsubscribe = tester.widget<Text>(find.text('Unsubscribe'));
+    expect(unsubscribe.style?.color, lightTheme.colorScheme.error);
+  });
+
   testWidgets('failed unsubscribe leaves the active feed usable', (
     tester,
   ) async {

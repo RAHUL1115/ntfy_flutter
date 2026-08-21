@@ -244,6 +244,34 @@ void main() {
     expect(store.allCalls, greaterThan(pausedCalls));
   });
 
+  testWidgets('stale SnackBars are gone after resuming the app', (
+    tester,
+  ) async {
+    await store.add(url: 'https://ntfy.sh/alerts');
+    await tester.pumpWidget(NtfyApp(store: store));
+    await tester.pumpAndSettle();
+
+    final refresh = tester.widget<RefreshIndicator>(
+      find.byType(RefreshIndicator),
+    );
+    await refresh.onRefresh();
+    await tester.pump();
+    expect(find.text('Everything is up to date'), findsOneWidget);
+
+    for (final state in const [
+      AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
+      AppLifecycleState.paused,
+    ]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
+    await tester.pump(const Duration(minutes: 5));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(find.text('Everything is up to date'), findsNothing);
+  });
+
   testWidgets('shows connection errors and retries from the topic list', (
     tester,
   ) async {
@@ -436,7 +464,7 @@ void main() {
     await tester.pump();
 
     expect(copiedText, 'https://ntfy.sh/alerts');
-    expect(find.text('Topic URL copied.'), findsOneWidget);
+    expect(find.text('Topic URL copied.'), findsNothing);
   });
 
   testWidgets('UnifiedPush rows show their app and open settings', (

@@ -236,11 +236,6 @@ class _TopicSettingsScreenState extends State<TopicSettingsScreen> {
                     await Clipboard.setData(
                       ClipboardData(text: _subscription.url),
                     );
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: LText('Topic URL copied.')),
-                      );
-                    }
                   },
                 ),
               ],

@@ -67,7 +67,7 @@ class NtfyApp extends StatefulWidget {
   State<NtfyApp> createState() => _NtfyAppState();
 }
 
-class _NtfyAppState extends State<NtfyApp> {
+class _NtfyAppState extends State<NtfyApp> with WidgetsBindingObserver {
   late final RetentionSession _retention;
   late final BackgroundListeningSession _backgroundListening;
   late final MessageNotificationSession _notifications;
@@ -80,6 +80,7 @@ class _NtfyAppState extends State<NtfyApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ownsRetention = widget.retention == null;
     _ownsNotifications = widget.notifications == null;
     _retention = widget.retention ?? RetentionSession(widget.store);
@@ -169,9 +170,17 @@ class _NtfyAppState extends State<NtfyApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (_ownsRetention) unawaited(_retention.close());
     if (_ownsNotifications) unawaited(_notifications.close());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _messengerKey.currentState?.clearSnackBars();
+    }
   }
 
   @override
