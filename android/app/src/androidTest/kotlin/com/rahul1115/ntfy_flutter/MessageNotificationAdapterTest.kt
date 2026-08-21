@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.widget.Button
 import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
@@ -101,7 +103,11 @@ class MessageNotificationAdapterTest {
         )
 
         val notification = awaitActiveNotifications(1).single().notification
-        assertEquals("ntfy-max", notification.channelId)
+        assertEquals("ntfy-full-screen", notification.channelId)
+        assertEquals(
+            NotificationManager.IMPORTANCE_HIGH,
+            manager.getNotificationChannel(notification.channelId).importance,
+        )
         assertEquals(android.app.Notification.CATEGORY_ALARM, notification.category)
         assertTrue(notification.extras.getBoolean("notification.fullScreenEligible"))
         assertNotNull(notification.fullScreenIntent)
@@ -121,9 +127,40 @@ class MessageNotificationAdapterTest {
         )
 
         val notification = awaitActiveNotifications(1).single().notification
-        assertEquals("ntfy-max", notification.channelId)
+        assertEquals("ntfy-full-screen", notification.channelId)
+        assertEquals(
+            NotificationManager.IMPORTANCE_HIGH,
+            manager.getNotificationChannel(notification.channelId).importance,
+        )
         assertNull(notification.fullScreenIntent)
         assertEquals(2, notification.actions.size)
+    }
+
+    @Test
+    fun testLockedEligibleAlertWakesIntoFullScreenActivity() {
+        assertTrue(MessageNotificationAdapter.canUseFullScreenIntent(instrumentation.targetContext))
+        val power = instrumentation.targetContext.getSystemService(PowerManager::class.java)
+        shell("input keyevent KEYCODE_SLEEP")
+        assertTrue(awaitCondition { !power.isInteractive })
+
+        try {
+            assertTrue(
+                MessageNotificationAdapter.show(
+                    instrumentation.targetContext,
+                    request(1) + ("fullScreenEligible" to true),
+                ),
+            )
+            assertTrue(awaitCondition { power.isInteractive })
+            assertTrue(
+                awaitCondition {
+                    shell("dumpsys activity activities").contains("FullScreenAlertActivity")
+                },
+            )
+        } finally {
+            shell("input keyevent KEYCODE_BACK")
+            shell("input keyevent KEYCODE_WAKEUP")
+            shell("wm dismiss-keyguard")
+        }
     }
 
     @Test
@@ -423,6 +460,19 @@ class MessageNotificationAdapterTest {
                 Manifest.permission.POST_NOTIFICATIONS,
             )
         }
+    }
+
+    private fun shell(command: String): String =
+        ParcelFileDescriptor.AutoCloseInputStream(
+            instrumentation.uiAutomation.executeShellCommand(command),
+        ).bufferedReader().use { it.readText() }
+
+    private fun awaitCondition(condition: () -> Boolean): Boolean {
+        repeat(100) {
+            if (condition()) return true
+            Thread.sleep(20)
+        }
+        return condition()
     }
 
     private fun clear() {

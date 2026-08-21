@@ -132,10 +132,10 @@ object MessageNotificationAdapter {
         val insistent = request["insistent"] as? Boolean ?: false
         val timestamp = (request["timestamp"] as? Number)?.toLong() ?: return false
         val customChannelGroup = request["channelId"] as? String
-        val channelId = if (customChannelGroup == null) {
-            channelId(priority) ?: return false
-        } else {
-            "$customChannelGroup-$priority"
+        val channelId = when {
+            fullScreenEligible -> FULL_SCREEN_CHANNEL_ID
+            customChannelGroup == null -> channelId(priority) ?: return false
+            else -> "$customChannelGroup-$priority"
         }
         if (isSubscriptionVisible(subscriptionId)) return false
         val manager = context.getSystemService(NotificationManager::class.java)
@@ -675,20 +675,31 @@ object MessageNotificationAdapter {
         }
         fun id(priority: String, fallback: String): String =
             if (groupId == null) fallback else "$groupId-$priority"
-        val channels = listOf(
+        val channels = (listOf(
             Triple(id("min", "ntfy-min"), R.string.message_channel_min, NotificationManager.IMPORTANCE_MIN),
             Triple(id("low", "ntfy-low"), R.string.message_channel_low, NotificationManager.IMPORTANCE_LOW),
             Triple(id("normal", "ntfy"), R.string.message_channel_default, NotificationManager.IMPORTANCE_DEFAULT),
             Triple(id("high", "ntfy-high"), R.string.message_channel_high, NotificationManager.IMPORTANCE_HIGH),
             Triple(id("max", "ntfy-max"), R.string.message_channel_max, NotificationManager.IMPORTANCE_HIGH),
-        ).mapIndexed { index, (id, name, importance) ->
-            NotificationChannel(id, context.getString(name), importance).apply {
+        ) + if (groupId == null) {
+            listOf(
+                Triple(
+                    FULL_SCREEN_CHANNEL_ID,
+                    R.string.message_channel_full_screen,
+                    NotificationManager.IMPORTANCE_HIGH,
+                ),
+            )
+        } else {
+            emptyList()
+        }).mapIndexed { index, (channelId, name, importance) ->
+            NotificationChannel(channelId, context.getString(name), importance).apply {
                 group = groupId
-                if (index == 3 || index == 4) {
+                val maximum = index == 4 || channelId == FULL_SCREEN_CHANNEL_ID
+                if (index == 3 || maximum) {
                     enableVibration(true)
-                    vibrationPattern = if (index == 3) HIGH_VIBRATION else MAX_VIBRATION
+                    vibrationPattern = if (maximum) MAX_VIBRATION else HIGH_VIBRATION
                 }
-                if (index == 4) {
+                if (maximum) {
                     enableLights(true)
                     setBypassDnd(true)
                 }
@@ -706,6 +717,7 @@ object MessageNotificationAdapter {
         300, 100, 300, 100, 300, 100, 300, 2000,
     )
     private const val CONNECTION_ALERT_CHANNEL_ID = "ntfy-connection-alert"
+    private const val FULL_SCREEN_CHANNEL_ID = "ntfy-full-screen"
     private const val CONNECTION_ALERT_ID = 712301
     private val SAFE_VIEW_SCHEMES = setOf("http", "https", "mailto", "tel", "geo", "market")
 }

@@ -5,6 +5,7 @@
     <string name="message_channel_default">Default priority messages</string>
     <string name="message_channel_high">High priority messages</string>
     <string name="message_channel_max">Maximum priority messages</string>
+    <string name="message_channel_full_screen">Full-screen alerts</string>
     <string name="connection_alert_channel">Connection alerts</string>
     <string name="connection_alert_title">Connection lost</string>
 </resources>
