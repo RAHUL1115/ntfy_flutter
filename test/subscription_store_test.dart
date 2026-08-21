@@ -773,6 +773,55 @@ void main() {
     },
   );
 
+  test('backup restore converges duplicate normalized topic URLs', () async {
+    final store = await _openMemoryStore();
+    addTearDown(store.close);
+    final backup = <String, Object?>{
+      'format': 'ntfy-flutter-backup',
+      'version': 1,
+      'settings': <String, Object?>{},
+      'subscriptions': <Object?>[
+        <String, Object?>{
+          'url': 'HTTPS://NTFY.SH/alerts/',
+          'display_name': 'First name',
+        },
+        <String, Object?>{
+          'url': 'https://ntfy.sh/alerts',
+          'display_name': 'Restored name',
+        },
+      ],
+      'messages': <Object?>[
+        <String, Object?>{
+          'subscription_url': 'HTTPS://NTFY.SH/alerts/',
+          'event_id': 'first',
+          'event_time': 1,
+          'message': 'First',
+          'priority': 3,
+          'tags': <Object?>[],
+        },
+        <String, Object?>{
+          'subscription_url': 'https://ntfy.sh/alerts',
+          'event_id': 'second',
+          'event_time': 2,
+          'message': 'Second',
+          'priority': 3,
+          'tags': <Object?>[],
+        },
+      ],
+    };
+
+    await store.restoreBackup(backup);
+
+    final restored = (await store.all()).single;
+    expect(restored.url, 'https://ntfy.sh/alerts');
+    expect(restored.displayName, 'Restored name');
+    expect(
+      (await store.loadFeed(restored.id)).messages
+          .map((message) => message.message),
+      ['Second', 'First'],
+    );
+  });
+
   test('invalid backup leaves the existing database untouched', () async {
     final store = await _openMemoryStore();
     addTearDown(store.close);

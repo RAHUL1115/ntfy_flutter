@@ -122,12 +122,7 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
   Future<void> _startFeed() async {
     if (_feedStarted) return;
     _feedStarted = true;
-    unawaited(
-      widget.notifications?.setVisibleSubscription(
-            _routeVisible && _appResumed ? _subscription.id : null,
-          ) ??
-          Future<void>.value(),
-    );
+    _updateVisibleSubscription();
     if (mounted) unawaited(widget.feed.start());
     await _loadNotificationPolicy();
   }
@@ -245,10 +240,11 @@ class _TopicFeedScreenState extends State<TopicFeedScreen>
 
   void _updateVisibleSubscription() {
     if (!_feedStarted) return;
+    final visible = _routeVisible && _appResumed;
     unawaited(
-      widget.notifications?.setVisibleSubscription(
-            _routeVisible && _appResumed ? _subscription.id : null,
-          ) ??
+      (visible
+              ? widget.notifications?.openTopic(_subscription)
+              : widget.notifications?.setVisibleSubscription(null)) ??
           Future<void>.value(),
     );
   }

@@ -24,6 +24,9 @@ object MessageNotificationAdapter {
     private const val EXTRA_NOTIFICATION_TAG = "notification.tag"
     private const val EXTRA_NOTIFICATION_ID = "notification.id"
     private const val TAG_PREFIX = "ntfy:"
+    private const val GROUP_PREFIX = "ntfy-topic:"
+    private const val GROUP_TAG_PREFIX = "ntfy-group:"
+    private const val LEGACY_GROUP_NOTIFICATIONS = "notification-topic-groups"
 
     private val pendingTaps = ArrayDeque<Map<String, Any>>()
 
@@ -78,6 +81,11 @@ object MessageNotificationAdapter {
                     }
                     result.success(null)
                 }
+                "clearTopicNotifications" -> {
+                    val topicUrl = call.arguments as? String
+                    if (!topicUrl.isNullOrEmpty()) clearTopic(context, topicUrl)
+                    result.success(null)
+                }
                 "broadcastMessage" -> {
                     @Suppress("UNCHECKED_CAST")
                     val request = call.arguments as? Map<String, Any>
@@ -114,6 +122,8 @@ object MessageNotificationAdapter {
             (request["subscriptionId"] as? Number)?.toInt() ?: return false
         val eventId = request["eventId"] as? String ?: return false
         val sequenceId = request["sequenceId"] as? String ?: eventId
+        val topicUrl = request["topicUrl"] as? String ?: return false
+        val topicName = request["topicName"] as? String ?: return false
         val title = request["title"] as? String ?: return false
         val body = request["body"] as? String ?: return false
         val requestedPriority = request["priority"] as? String ?: return false
@@ -138,11 +148,18 @@ object MessageNotificationAdapter {
 
         val notificationId = notificationId(subscriptionId, sequenceId)
         val notificationTag = notificationTag(subscriptionId, sequenceId)
+        val groupKey = groupKey(topicUrl)
         val openTopic = PendingIntent.getActivity(
             context,
             notificationId,
             safeViewIntent(request["click"] as? String)
                 ?: launchIntent(context, subscriptionId, eventId),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val openGroup = PendingIntent.getActivity(
+            context,
+            groupSummaryId(groupKey),
+            launchIntent(context, subscriptionId, eventId).apply { action = groupKey },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -167,6 +184,7 @@ object MessageNotificationAdapter {
             .setShowWhen(true)
             .setAutoCancel(true)
             .setOnlyAlertOnce(!insistent)
+            .setGroup(groupKey)
             .setCategory(
                 if (fullScreenEligible) Notification.CATEGORY_ALARM
                 else Notification.CATEGORY_MESSAGE,
@@ -254,14 +272,114 @@ object MessageNotificationAdapter {
             notification.flags = notification.flags or Notification.FLAG_INSISTENT
         }
         manager.notify(notificationTag, notificationId, notification)
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            recordLegacyNotification(context, groupKey, notificationTag, notificationId)
+        }
+        showGroupSummary(
+            context,
+            manager,
+            groupKey,
+            topicName,
+            body,
+            channelId,
+            timestamp,
+            openGroup,
+        )
         return true
     }
 
     fun cancel(context: Context, subscriptionId: Int, sequenceId: String) {
-        context.getSystemService(NotificationManager::class.java).cancel(
-            notificationTag(subscriptionId, sequenceId),
-            notificationId(subscriptionId, sequenceId),
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val tag = notificationTag(subscriptionId, sequenceId)
+        val id = notificationId(subscriptionId, sequenceId)
+        val group = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            manager.activeNotifications.firstOrNull { it.tag == tag && it.id == id }
+                ?.notification?.group
+        } else {
+            null
+        }
+        manager.cancel(tag, id)
+        if (group != null && manager.activeNotifications.none {
+                it.notification.group == group &&
+                    it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 &&
+                    !(it.tag == tag && it.id == id)
+            }) {
+            manager.cancel(groupSummaryTag(group), groupSummaryId(group))
+        }
+    }
+
+    fun clearTopic(context: Context, topicUrl: String) {
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val group = groupKey(topicUrl)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            manager.activeNotifications
+                .filter { it.notification.group == group }
+                .forEach { manager.cancel(it.tag, it.id) }
+        } else {
+            val preferences = context.getSharedPreferences(
+                LEGACY_GROUP_NOTIFICATIONS,
+                Context.MODE_PRIVATE,
+            )
+            preferences.getStringSet(group, emptySet()).orEmpty().forEach { value ->
+                val separator = value.lastIndexOf('\u0000')
+                if (separator > 0) {
+                    manager.cancel(
+                        value.substring(0, separator),
+                        value.substring(separator + 1).toInt(),
+                    )
+                }
+            }
+            preferences.edit().remove(group).apply()
+        }
+        manager.cancel(groupSummaryTag(group), groupSummaryId(group))
+    }
+
+    private fun showGroupSummary(
+        context: Context,
+        manager: NotificationManager,
+        group: String,
+        topicName: String,
+        body: String,
+        channelId: String,
+        timestamp: Long,
+        openTopic: PendingIntent,
+    ) {
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(context, channelId)
+        } else {
+            Notification.Builder(context)
+        }
+        builder
+            .setSmallIcon(R.drawable.ic_ntfy_notification)
+            .setContentTitle(topicName)
+            .setContentText(body)
+            .setContentIntent(openTopic)
+            .setWhen(timestamp)
+            .setShowWhen(true)
+            .setAutoCancel(true)
+            .setOnlyAlertOnce(true)
+            .setGroup(group)
+            .setGroupSummary(true)
+            .setPriority(Notification.PRIORITY_LOW)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            builder.setGroupAlertBehavior(Notification.GROUP_ALERT_CHILDREN)
+        }
+        manager.notify(groupSummaryTag(group), groupSummaryId(group), builder.build())
+    }
+
+    private fun recordLegacyNotification(
+        context: Context,
+        group: String,
+        tag: String,
+        id: Int,
+    ) {
+        val preferences = context.getSharedPreferences(
+            LEGACY_GROUP_NOTIFICATIONS,
+            Context.MODE_PRIVATE,
         )
+        val notifications = preferences.getStringSet(group, emptySet()).orEmpty().toMutableSet()
+        notifications.add("$tag\u0000$id")
+        preferences.edit().putStringSet(group, notifications).apply()
     }
 
     private fun addUserActions(
@@ -433,6 +551,12 @@ object MessageNotificationAdapter {
 
     private fun notificationId(subscriptionId: Int, sequenceId: String) =
         "$subscriptionId:$sequenceId".hashCode() and Int.MAX_VALUE
+
+    private fun groupKey(topicUrl: String) = "$GROUP_PREFIX$topicUrl"
+
+    private fun groupSummaryTag(group: String) = "$GROUP_TAG_PREFIX$group"
+
+    private fun groupSummaryId(group: String) = group.hashCode() and Int.MAX_VALUE
 
     fun recordLaunchIntent(intent: Intent?) {
         if (intent == null || !intent.hasExtra(EXTRA_SUBSCRIPTION_ID)) return

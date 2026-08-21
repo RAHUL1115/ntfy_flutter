@@ -1315,6 +1315,7 @@ void main() {
     await tester.tap(find.text('Production'));
     await tester.pumpAndSettle();
     expect(platform.visibleId, 1);
+    expect(platform.clearedTopics, ['https://ntfy.sh/alerts']);
 
     await tester.tap(find.byIcon(Icons.more_vert));
     await tester.pumpAndSettle();
@@ -1622,8 +1623,10 @@ class _MemorySecrets implements SecretBackend {
   Future<void> write(String key, String value) async => values[key] = value;
 }
 
-class _RecordingNotificationPlatform implements NotificationPlatform {
+class _RecordingNotificationPlatform
+    implements NotificationPlatform, NotificationControlPlatform {
   final _taps = StreamController<NotificationTarget>.broadcast();
+  final clearedTopics = <String>[];
   int? visibleId;
 
   void emit(NotificationTarget target) => _taps.add(target);
@@ -1644,6 +1647,14 @@ class _RecordingNotificationPlatform implements NotificationPlatform {
   @override
   Future<void> setVisibleSubscription(int? subscriptionId) async {
     visibleId = subscriptionId;
+  }
+
+  @override
+  Future<void> cancel(int subscriptionId, String sequenceId) async {}
+
+  @override
+  Future<void> clearTopic(String topicUrl) async {
+    clearedTopics.add(topicUrl);
   }
 
   @override

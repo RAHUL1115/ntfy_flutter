@@ -39,6 +39,8 @@ void main() {
       NotificationPriority.values,
     );
     expect(platform.shown.first.title, 'Production alerts');
+    expect(platform.shown.first.topicUrl, subscription.url);
+    expect(platform.shown.first.topicName, 'Production alerts');
   });
 
   test('recognized tags use the same emoji title/body presentation', () async {
@@ -231,6 +233,17 @@ void main() {
     expect(platform.shown.single.subscriptionId, 8);
   });
 
+  test('opening a topic clears only that normalized topic URL', () async {
+    final platform = _RecordingNotificationPlatform();
+    final notifications = MessageNotificationSession(platform);
+    const subscription = Subscription(id: 7, url: 'https://ntfy.sh/alerts');
+
+    await notifications.openTopic(subscription);
+
+    expect(platform.visibleId, subscription.id);
+    expect(platform.clearedTopics, [subscription.url]);
+  });
+
   test('enabled broadcasts include visible and muted messages', () async {
     final platform = _RecordingNotificationPlatform()..visibleId = 7;
     final policies = _PolicyRepository(
@@ -378,6 +391,7 @@ class _RecordingNotificationPlatform
   final shown = <MessageNotification>[];
   final broadcasts = <(Subscription, StoredMessage, bool)>[];
   final cancelled = <(int, String)>[];
+  final clearedTopics = <String>[];
   final _taps = StreamController<NotificationTarget>.broadcast();
   int? visibleId;
   bool allowPosting = true;
@@ -410,6 +424,11 @@ class _RecordingNotificationPlatform
   @override
   Future<void> cancel(int subscriptionId, String sequenceId) async {
     cancelled.add((subscriptionId, sequenceId));
+  }
+
+  @override
+  Future<void> clearTopic(String topicUrl) async {
+    clearedTopics.add(topicUrl);
   }
 
   @override

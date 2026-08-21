@@ -277,6 +277,51 @@ class MessageNotificationAdapterTest {
     }
 
     @Test
+    fun testNotificationsGroupByTopicUrlAndClearExactTopic() {
+        val first = request(3) + mapOf("eventId" to "first", "sequenceId" to "first")
+        val second = request(4) + mapOf("eventId" to "second", "sequenceId" to "second")
+        val other = request(3) + mapOf(
+            "subscriptionId" to 8,
+            "eventId" to "other",
+            "sequenceId" to "other",
+            "topicUrl" to "https://example.com/alerts",
+        )
+
+        assertTrue(MessageNotificationAdapter.show(instrumentation.targetContext, first))
+        assertTrue(MessageNotificationAdapter.show(instrumentation.targetContext, second))
+        assertTrue(MessageNotificationAdapter.show(instrumentation.targetContext, other))
+
+        val children = awaitActiveNotifications(3)
+        val topicGroup = "ntfy-topic:https://ntfy.sh/alerts"
+        val otherGroup = "ntfy-topic:https://example.com/alerts"
+        assertEquals(2, children.count { it.notification.group == topicGroup })
+        assertEquals(1, children.count { it.notification.group == otherGroup })
+        val summaries = manager.activeNotifications.filter {
+            it.notification.flags and android.app.Notification.FLAG_GROUP_SUMMARY != 0
+        }
+        assertEquals(2, summaries.size)
+        assertTrue(summaries.all { it.notification.extras.getString("android.title") == "Alerts" })
+
+        MessageNotificationAdapter.clearTopic(
+            instrumentation.targetContext,
+            "https://ntfy.sh/alerts",
+        )
+
+        repeat(50) {
+            if (manager.activeNotifications.none {
+                    it.notification.group == topicGroup
+                }) return@repeat
+            Thread.sleep(20)
+        }
+        assertTrue(manager.activeNotifications.none {
+            it.notification.group == topicGroup
+        })
+        assertTrue(manager.activeNotifications.any {
+            it.notification.group == otherGroup
+        })
+    }
+
+    @Test
     fun testVisibleSubscriptionMatchIsExactAndClears() {
         MessageNotificationAdapter.setVisibleSubscription(7)
 
@@ -313,6 +358,8 @@ class MessageNotificationAdapterTest {
         "id" to priority,
         "subscriptionId" to 7,
         "eventId" to "event-$priority",
+        "topicUrl" to "https://ntfy.sh/alerts",
+        "topicName" to "Alerts",
         "title" to "Alerts",
         "body" to "Message $priority",
         "priority" to listOf("min", "low", "normal", "high", "max")[priority - 1],

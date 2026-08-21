@@ -40,6 +40,8 @@ class MessageNotification {
     required this.subscriptionId,
     required this.eventId,
     String? sequenceId,
+    required this.topicUrl,
+    required this.topicName,
     required this.title,
     required this.body,
     required this.priority,
@@ -62,6 +64,8 @@ class MessageNotification {
   final int subscriptionId;
   final String eventId;
   final String sequenceId;
+  final String topicUrl;
+  final String topicName;
   final String title;
   final String body;
   final NotificationPriority priority;
@@ -84,6 +88,8 @@ class MessageNotification {
     'subscriptionId': subscriptionId,
     'eventId': eventId,
     'sequenceId': sequenceId,
+    'topicUrl': topicUrl,
+    'topicName': topicName,
     'title': title,
     'body': body,
     'priority': priority.name,
@@ -156,6 +162,8 @@ abstract interface class MessageBroadcastPlatform {
 
 abstract interface class NotificationControlPlatform {
   Future<void> cancel(int subscriptionId, String sequenceId);
+
+  Future<void> clearTopic(String topicUrl);
 }
 
 class AndroidNotificationPlatform
@@ -215,6 +223,10 @@ class AndroidNotificationPlatform
         'subscriptionId': subscriptionId,
         'sequenceId': sequenceId,
       });
+
+  @override
+  Future<void> clearTopic(String topicUrl) =>
+      _channel.invokeMethod('clearTopicNotifications', topicUrl);
 
   @override
   Future<void> broadcast(
@@ -352,6 +364,8 @@ class MessageNotificationSession {
         subscriptionId: subscription.id,
         eventId: message.eventId,
         sequenceId: message.sequenceId,
+        topicUrl: subscription.url,
+        topicName: fallbackTitle,
         title: title,
         body: body,
         priority: NotificationPriority.values[message.priority - 1],
@@ -401,6 +415,8 @@ class MessageNotificationSession {
           subscriptionId: notification.subscriptionId,
           eventId: notification.eventId,
           sequenceId: notification.sequenceId,
+          topicUrl: notification.topicUrl,
+          topicName: notification.topicName,
           title: notification.title,
           body: notification.body,
           priority: notification.priority,
@@ -449,6 +465,18 @@ class MessageNotificationSession {
     });
     _visibilityTail = result.then<void>((_) {}, onError: (_, _) {});
     return result;
+  }
+
+  Future<void> openTopic(Subscription subscription) async {
+    await setVisibleSubscription(subscription.id);
+    if (platform is! NotificationControlPlatform) return;
+    try {
+      await (platform as NotificationControlPlatform).clearTopic(
+        subscription.url,
+      );
+    } catch (_) {
+      // Notification cleanup failure must not disrupt the visible feed.
+    }
   }
 
   Future<void> close() => platform.close();
